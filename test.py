@@ -1,4 +1,4 @@
-def RNN_generator(data,batchSize,seqSize,shuffle=True,downSample=1):
+def RNN_generator(data,batchSize,seqSize,df,key,discreteList,shuffle=True,downSample=1):
     # return bool (if init should be reset) and a list [y,weight,Xcontinue] + [Xdiscrete] + [X]
     # finetune by use store-item pair in testset only
     if shuffle:
@@ -9,8 +9,8 @@ def RNN_generator(data,batchSize,seqSize,shuffle=True,downSample=1):
         X = list(data.loc[from_:from_+batchSize,'store_nbr':'cluster'].values.astype(np.int32).T)
         weight = np.ones((batch_size,1),dtype=np.float32)
         weight[data.loc[from_:from_+batchSize,'perishable']==1] = 1.25
-        for j,(y,w,Xdiscrete,Xcontinue) in \
-                        enumerate(timeGenerator(data.loc[from_:from_+batchSize,'date':'amax'],seqSize,downSample)):
+        for j,(y,w,Xdiscrete,Xcontinue) in enumerate(timeGenerator(\
+                           data.loc[from_:from_+batchSize,'date':'amax'],seqSize,downSample,df,key,discreteList)):
             yield j==0, [y,weight*w,Xcontinue] + Xdiscrete + X
             
 def timeGenerator(data,seqSize,downSample,df,key,discreteList):
@@ -33,9 +33,9 @@ def timeGenerator(data,seqSize,downSample,df,key,discreteList):
                                   .reshape((n,seqSize+1,2))[:,:seqSize,:]
         dense_discrete = list(np.moveaxis(dense[discreteList].values.astype(np.int32)\
                                                 .reshape((n,seqSize+1,len(discreteList)))[:,:seqSize,:]\
-                                          2,0))
+                                          ,2,0))
         y = dense['sales'].values.astype(np.float32).reshape((n,seqSize+1))[:,1:]
         weight = np.ones_like(y,dtype=np.float32)
         weight[y==0] = downSample
         yield y, weight, dense_discrete, dense_continue
-        data.curr = data.curr + pd.DateOffset(seqSize)
+        data.curr = data.curr + pd.DateOffset(seqSize)            
