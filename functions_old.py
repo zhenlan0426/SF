@@ -136,3 +136,15 @@ def MLP_Test_timeGenerator(data,seqSize,df,key,discreteList):
     weight = np.ones_like(y,dtype=np.float32)
     #weight[y==0] = downSample
     yield y, weight, dense_discrete, dense_continue
+
+
+def test_RNN_generator(y_np,Con_np,Dis_list,X_np,Count_np,batchSize):
+    n = Con_np.shape[0]
+    for b in range(0,n,batchSize):
+        X_list_ = list(X_np[b:b+batchSize].T)
+        count_ = Count_np[b:b+batchSize]
+        max_ = np.max(count_)
+        for t_ in range(0,max_):
+            yield [np.stack([Con_np[b:b+batchSize,t_+1:t_+2],y_np[b:b+batchSize,t_:t_+1]],-1)]\
+                     + [dis[b:b+batchSize,t_+1:t_+2] for dis in Dis_list]\
+                     + X_list_ + [t_==0], count_ 
