@@ -44,6 +44,19 @@ def mergeFillCastsss(df0,dfs,keys):
         df0 = mergeFillCast(df0,df,key)
     return df0
 
+def splitTest(test,train):
+    train['S_I'] = train.item_nbr + train.store_nbr/100.0
+    test['S_I'] = test.item_nbr + test.store_nbr/100.0
+    train_SI = set(train.S_I)
+    test_SI = set(test.S_I)
+    train_I = set(train.item_nbr)
+    test_I = set(test.item_nbr)
+    SI_intersection = train_SI & test_SI
+    I_newItem = test_I - train_I
+    index_SI = test.S_I.isin(SI_intersection)
+    index_I_newItem = test.item_nbr.isin(I_newItem)
+    #index_other = ~(index_SI | index_I_newItem)
+    return test[index_SI].drop('S_I',1),test[index_I_newItem].drop('S_I',1)
 
 def createDataMain(isTrain):
     types = {'id': 'int32',
@@ -56,8 +69,6 @@ def createDataMain(isTrain):
     train = train.fillna(2,axis=1)
     train.onpromotion = train.onpromotion.astype(np.int8)
     train.loc[train.unit_sales<0,'unit_sales'] = .0 # clip negative sales to zero
-    val = train[train.date >= '2017-07-31']
-    train = train[train.date < '2017-07-31']
     with open('item_dict_train.pickle' if isTrain else 'item_dict_final.pickle', "rb") as input_file:
         item_dict = cPickle.load(input_file)
     iter_mapping = lambda x: item_dict[x] if x in item_dict else 0
@@ -97,10 +108,16 @@ def createDataMain(isTrain):
                          'countDays',
                          'amin',
                          'amax']]
+    if isTrain:
+        val = train[train.date >= '2017-07-31']
+        train = train[train.date < '2017-07-31']
+        trainRNN = CreateData(train)
+        val_SI,val_newItem = splitTest(CreateData(val),trainRNN)
+        return trainRNN,val_SI,val_newItem
+    else:
+        trainRNN = CreateData(train)
+        return trainRNN,None
 
-    trainRNN = CreateData(train)
-    valRNN = CreateData(val)
-    return trainRNN,valRNN
 
 def createTestDataMain(isTrain):
     types = {'id': 'int32',
@@ -154,19 +171,6 @@ def createTestDataMain(isTrain):
                          'amin',
                          'amax']]
     
-    def splitTest(test,train):
-        train['S_I'] = train.item_nbr + train.store_nbr/100.0
-        test['S_I'] = test.item_nbr + test.store_nbr/100.0
-        train_SI = set(train.S_I)
-        test_SI = set(test.S_I)
-        train_I = set(train.item_nbr)
-        test_I = set(test.item_nbr)
-        SI_intersection = train_SI & test_SI
-        I_newItem = test_I - train_I
-        index_SI = test.S_I.isin(SI_intersection)
-        index_I_newItem = test.item_nbr.isin(I_newItem)
-        #index_other = ~(index_SI | index_I_newItem)
-        return test[index_SI].drop('S_I',1),test[index_I_newItem].drop('S_I',1)
     
     test_SI,test_newItem = splitTest(CreateData(test),train)
     test_SI['item_nbr'] = test_SI.item_nbr.map(iter_mapping)
