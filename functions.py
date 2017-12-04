@@ -113,10 +113,10 @@ def createDataMain(isTrain):
         train = train[train.date < '2017-07-31']
         trainRNN = CreateData(train)
         val_SI,val_newItem = splitTest(CreateData(val),trainRNN)
-        return trainRNN,val_SI,val_newItem
+        return trainRNN.reset_index(drop=True),val_SI.reset_index(drop=True),val_newItem.reset_index(drop=True)
     else:
         trainRNN = CreateData(train)
-        return trainRNN,None
+        return trainRNN.reset_index(drop=True)
 
 
 def createTestDataMain(isTrain):
@@ -456,7 +456,33 @@ def RNN_forecast(sess,inputs,state,yhat,batch_size,n_layers,\
     y_tot_list = np.concatenate(y_tot_list,0)
     return y_tot_list
 
-
+def RNN_forecast_Repeat(repeat,sess,inputs,state,yhat,batch_size,n_layers,\
+                 y_np,Con_np,X_np,Dis_np,init_tot_list):
+    y_SI = np.zeros_like(Con_np)
+    for i in range(repeat):
+        y_SI = y_SI + RNN_forecast(sess,inputs,state,yhat,batch_size,n_layers,\
+                                 y_np,Con_np,X_np,Dis_np,init_tot_list)
+    return y_SI/repeat
+    
+       
+def loss_func(Weight,yhat,y):
+    return np.sqrt(np.sum(Weight*(np.log((yhat+1)/(y+1)))**2)/np.sum(Weight)/16)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
 
 
 
