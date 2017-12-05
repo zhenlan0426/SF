@@ -339,7 +339,7 @@ def createGraphRNN(batch_size,seq_len,cardinalitys_X,cardinalitys_T,dimentions_X
     Xt1 = tf.concat([tf.nn.embedding_lookup(emb,x) for emb,x in zip(embedding_Xt,Xt)] + [X_continuous],2)
     X1 = tf.concat([tf.nn.embedding_lookup(emb,x) for emb,x in zip(embedding_X,X)],1)    
     Xall = [tf.concat([xt,X1],1) for xt in tf.unstack(Xt1,axis=1)]
-    cell = tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.GRUCell(d),keep_prob)
+    cell = tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.GRUCell(d),output_keep_prob=keep_prob)
     cell = tf.contrib.rnn.MultiRNNCell([cell]*n_layers)
     weights_init = tf.Variable(tf.truncated_normal([dX,d*n_layers],
                         stddev=1.0 / np.sqrt(dX)),name='weights_init')
