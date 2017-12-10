@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 Created on Sat Nov 11 10:12:15 2017
-
 @author: will
 """
 import numpy as np
@@ -434,6 +433,27 @@ def init_state_update(sess,inputs,state,batch_size,d,n_layers,y_np,Con_np,X_np,C
     init_tot_list = np.concatenate(init_tot_list,0)
     return init_tot_list
 
+def init_state_update_LSTM(sess,inputs,state,batch_size,d,n_layers,y_np,Con_np,X_np,Count_np,Dis_np):
+    #TODO
+    init_state = tuple([tf.contrib.rnn.LSTMStateTuple(np.zeros((batch_size,d),dtype=np.float32),\
+                                                      np.zeros((batch_size,d),dtype=np.float32))\
+                                                        for i in range(n_layers)]) 
+    n = Con_np.shape[0]
+    init_tot_list = []
+    for b in range(0,n,batch_size):
+        X_list_ = list(X_np[b:b+batch_size].T)
+        count_ = Count_np[b:b+batch_size]
+        max_ = np.max(count_) - 1
+        init_list = []
+        for t_ in range(0,max_):
+            init_state = sess.run(state,dict(zip(inputs[2:-2] + [inputs[-1]],\
+                        [np.stack([Con_np[b:b+batch_size,t_+1:t_+2],y_np[b:b+batch_size,t_:t_+1]],-1)]\
+                         + [dis[b:b+batch_size,t_+1:t_+2] for dis in Dis_np]\
+                         + X_list_ + [t_==0,init_state])))
+            init_list.append(np.stack(init_state,2))
+        init_tot_list.append(np.stack(init_list,3)[np.arange(count_.shape[0]),:,:,count_-2]) 
+    init_tot_list = np.concatenate(init_tot_list,0)
+    return init_tot_list
 
 
 def RNN_forecast(sess,inputs,state,yhat,batch_size,n_layers,\
@@ -456,6 +476,11 @@ def RNN_forecast(sess,inputs,state,yhat,batch_size,n_layers,\
     y_tot_list = np.concatenate(y_tot_list,0)
     return y_tot_list
 
+def RNN_forecast_LSTM(sess,inputs,state,yhat,batch_size,n_layers,\
+                 y_np,Con_np,X_np,Dis_np,init_tot_list):
+    #TODO
+    pass
+
 def RNN_forecast_Repeat(repeat,sess,inputs,state,yhat,batch_size,n_layers,\
                  y_np,Con_np,X_np,Dis_np,init_tot_list):
     y_SI = np.zeros_like(Con_np)
@@ -469,31 +494,149 @@ def loss_func(Weight,yhat,y):
     return np.sqrt(np.sum(Weight*(np.log((yhat+1)/(y+1)))**2)/np.sum(Weight)/16)
     
     
+
+''' setup '''
+discreteList = ['dayOfWeek','payDay','month','earthquake','type','locale','locale_name','transferred','onpromotion']
+cardinalitys_X = [55, 4001, 34, 337, 2, 23, 17, 6, 18]
+cardinalitys_T = [7, 2, 13, 2, 7, 4, 25, 2, 3]
+dimentions_X = [2, 20, 1, 2, 1, 1, 1, 1, 1]
+dimentions_T = [1, 1, 1, 1, 1, 1, 1, 1, 1]
+dX = sum(dimentions_X)
+dT = sum(dimentions_T)
+d = dX + dT + 2 # 2 for two cont variables
+learningRate = 1e-4
+epoch = 30
+bucketSize = 10000
+prefix = 'train'
+y_np = np.loadtxt(prefix+'_Y',dtype=np.float32, delimiter=",") 
+weight_np = np.loadtxt(prefix+'_Weight',dtype=np.float32, delimiter=",") 
+Con_np = np.loadtxt(prefix+'_Con',dtype=np.float32, delimiter=",") 
+X_np = np.loadtxt(prefix+'_X',dtype=np.int32,delimiter=",") 
+Count_np = np.loadtxt(prefix+'_Count',dtype=np.int32,delimiter=",") 
+Dis_np = [np.loadtxt(prefix+'_Dis'+str(j),dtype=np.int32,delimiter=",")  for j in range(len(discreteList))]
+prefix = 'val_SI'
+y_np_val = np.loadtxt(prefix+'_Y',dtype=np.float32, delimiter=",") 
+weight_np_val = np.loadtxt(prefix+'_Weight',dtype=np.float32, delimiter=",") 
+Con_np_val = np.loadtxt(prefix+'_Con',dtype=np.float32, delimiter=",") 
+X_np_val = np.loadtxt(prefix+'_X',dtype=np.int32,delimiter=",") 
+Count_np_val = np.loadtxt(prefix+'_Count',dtype=np.int32,delimiter=",") 
+Dis_np_val = [np.loadtxt(prefix+'_Dis'+str(j),dtype=np.int32,delimiter=",")  for j in range(len(discreteList))]
+index = np.loadtxt('Index_val',dtype=np.int32,delimiter=",") 
+''' setup '''
+
+def createGraphRNN2(batch_size,seq_len,cardinalitys_X,cardinalitys_T,dimentions_X,dimentions_T,\
+                dX,d,keep_prob,n_layers,grad_clip,cell_type,optimizer,actFun):
+
+    tf.reset_default_graph()
+    embedding_X = [tf.get_variable("embedding_X"+str(i), [car, dim],\
+                                   initializer=tf.truncated_normal_initializer()) \
+                for i,(car,dim) in enumerate(zip(cardinalitys_X,dimentions_X))]
+    embedding_Xt = [tf.get_variable("embedding_Xt"+str(i), [car, dim],\
+                                    initializer=tf.truncated_normal_initializer()) \
+                    for i,(car,dim) in enumerate(zip(cardinalitys_T,dimentions_T))]
+
+    learning_rate = tf.placeholder(tf.float32,shape=[])
+    X = [tf.placeholder(tf.int32, [batch_size,], name='X_'+str(i)) for i,_ in enumerate(dimentions_X)]
+    Xt = [tf.placeholder(tf.int32, [batch_size,seq_len], name='Xt_'+str(i)) for i,_ in enumerate(dimentions_T)]
+    X_continuous = tf.placeholder(tf.float32, [batch_size,seq_len,2], name='X_continuous')
+    Weight = tf.placeholder(tf.float32, [batch_size,seq_len], name='Weight')
+    y = tf.placeholder(tf.float32, [batch_size,seq_len], name='y')
+    IsStart = tf.placeholder(tf.bool, [], name='IsStart')
+    Xt1 = tf.concat([tf.nn.embedding_lookup(emb,x) for emb,x in zip(embedding_Xt,Xt)] + [X_continuous],2)
+    X1 = tf.concat([tf.nn.embedding_lookup(emb,x) for emb,x in zip(embedding_X,X)],1)    
+    Xall = [tf.concat([xt,X1],1) for xt in tf.unstack(Xt1,axis=1)]
+    if actFun == 'tanh':
+        actFun = tf.tanh
+    else:
+        actFun = tf.nn.relu
+    
+    if cell_type == 'residual':
+        cell = tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.ResidualWrapper(tf.contrib.rnn.GRUCell(d,actFun)),output_keep_prob=keep_prob)
+        init_state = tuple([tf.placeholder(tf.float32, [batch_size,d], name='initState_'+str(i)) for i in range(n_layers)])
+        factor = 1
+    elif cell_type == 'highway':
+        cell = tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.HighwayWrapper(tf.contrib.rnn.GRUCell(d,actFun)),output_keep_prob=keep_prob)
+        init_state = tuple([tf.placeholder(tf.float32, [batch_size,d], name='initState_'+str(i)) for i in range(n_layers)])
+        factor = 1
+    elif cell_type == 'NormLSTM':
+        cell = tf.contrib.rnn.LayerNormBasicLSTMCell(d,activation=actFun,dropout_keep_prob=keep_prob)
+        init_state = tuple([tf.contrib.rnn.LSTMStateTuple(tf.placeholder(tf.float32, [batch_size,d], name='initC_'+str(i)),\
+                                                          tf.placeholder(tf.float32, [batch_size,d], name='initH_'+str(i))) \
+                            for i in range(n_layers)])
+        factor = 2
+        
+    inputs = [y,Weight,X_continuous] + Xt + X + [IsStart,learning_rate,init_state]
+    cell = tf.contrib.rnn.MultiRNNCell([cell]*n_layers)
+    weights_init = tf.Variable(tf.truncated_normal([dX,d*n_layers*factor],
+                        stddev=1.0 / np.sqrt(dX)),name='weights_init')
+    biases_init = tf.Variable(tf.zeros([d*n_layers*factor]),
+                         name='biases_init')
+    if cell_type == 'NormLSTM':
+        init_state2 = tf.cond(IsStart,\
+                            lambda:tuple([tf.contrib.rnn.LSTMStateTuple(*tf.split(tensor_,2,1)) \
+                                          for tensor_ in tf.split(tf.matmul(X1,weights_init)+biases_init,n_layers,1)]),\
+                            lambda:init_state)
+    else:    
+        init_state2 = tf.cond(IsStart,\
+                            lambda:tuple(tf.split(tf.matmul(X1,weights_init)+biases_init,n_layers,1)),\
+                            lambda:init_state)
+    outputs, state = tf.contrib.rnn.static_rnn(cell,Xall,init_state2)
+    outputs_flat = tf.stack(outputs,1)
+    weights_out = tf.Variable(tf.truncated_normal([d],
+                        stddev=1.0 / np.sqrt(d)),name='weights_out')
+    biases_out = tf.Variable(tf.zeros([1]),
+                         name='biases_out')
+    yhat = tf.nn.relu(tf.einsum('btp,p->bt', outputs_flat, weights_out) + biases_out)    
+        
+    cost = tf.reduce_mean(Weight*(tf.log((yhat+1)/(y+1)))**2)
+    tvars = tf.trainable_variables()
+    grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars),grad_clip)
+    if optimizer =='SGD':
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
+    else:
+        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
+    train_op = optimizer.apply_gradients(zip(grads, tvars))
+    saver = tf.train.Saver()     
+    
+    return inputs,train_op,cost,saver,yhat,state
+
+def hyperSearch(paras):   
+    batch_size,seq_len,keep_prob,n_layers,grad_clip,cell_type,downsample,optimizer,actFun = \
+	paras[0],paras[1],paras[2],int(paras[3]),paras[4],paras[5],paras[6],paras[7],paras[8]
+    # training 
+    inputs,train_op,cost,saver,yhat,state = createGraphRNN2(batch_size,seq_len,cardinalitys_X,cardinalitys_T,\
+                                                    dimentions_X,dimentions_T,dX,d,keep_prob,n_layers,\
+                                                    grad_clip,cell_type,optimizer,actFun)
+    sess = tf.InteractiveSession()
+    sess.run(tf.global_variables_initializer())
+    init_state = tuple([tf.contrib.rnn.LSTMStateTuple(np.zeros((batch_size,d),dtype=np.float32),\
+                                                      np.zeros((batch_size,d),dtype=np.float32))\
+                                                        for i in range(n_layers)]) \
+                 if cell_type== 'NormLSTM' else \
+                 tuple([np.zeros((batch_size,d),dtype=np.float32) for i in range(n_layers)]) 
+    for i in range(epoch*100/batch_size):
+        for j,X_nps in enumerate(RNN_generator(y_np, weight_np,Con_np,Dis_np,X_np,Count_np,\
+                                  batch_size,seq_len,bucketSize,downSample=downsample)):
+            _,init_state = sess.run([train_op,state],\
+                                 dict(zip(inputs,X_nps+[learningRate,init_state])))
+    saver.save(sess,'RNN_fillin_01')
+        
+    # testing        
+    inputs,train_op,cost,saver,yhat,state = createGraphRNN2(None,1,cardinalitys_X,cardinalitys_T,\
+                                            dimentions_X,dimentions_T,dX,d,keep_prob,n_layers,\
+                                            grad_clip,cell_type,optimizer,actFun)
+    sess = tf.InteractiveSession()
+    sess.run(tf.global_variables_initializer())
+    saver.restore(sess,'RNN_fillin_01')
+    init_tot_list = init_state_update(sess,inputs,state,batch_size*10,d,n_layers,\
+                          y_np[index],Con_np[index],X_np[index],Count_np[index],\
+                          [dis[index] for dis in Dis_np])
+    y_val_hat = RNN_forecast_Repeat(10,sess,inputs,state,yhat,batch_size*10,n_layers,\
+                                    np.expand_dims(y_np[index,Count_np[index]-1],-1),\
+                                    Con_np_val,X_np_val,Dis_np_val,init_tot_list)
+    loss = loss_func(weight_np_val[:,np.newaxis],y_val_hat,y_np_val)    
+    print "loss:{} ,batch_size:{} ,seq_len:{} ,keep_prob:{} ,n_layers:{} ,grad_clip:{} ,cell_type:{} ,downsample:{} ,optimizer:{} ,actFun:{} \n"\
+          .format(loss,batch_size,seq_len,keep_prob,n_layers,grad_clip,cell_type,downsample,optimizer,actFun)
+    return 100 if (np.isnan(loss) or np.isinf(loss)) else loss
     
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
