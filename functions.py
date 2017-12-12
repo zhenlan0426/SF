@@ -506,7 +506,14 @@ def RNN_forecast_Repeat(repeat,sess,inputs,state,yhat,batch_size,n_layers,\
         y_SI = y_SI + RNN_forecast(sess,inputs,state,yhat,batch_size,n_layers,\
                                  y_np,Con_np,X_np,Dis_np,init_tot_list)
     return y_SI/repeat
-    
+
+def RNN_forecast_Repeat_LSTM(repeat,sess,inputs,state,yhat,batch_size,n_layers,\
+                 y_np,Con_np,X_np,Dis_np,init_tot_list):
+    y_SI = np.zeros_like(Con_np)
+    for i in range(repeat):
+        y_SI = y_SI + RNN_forecast_LSTM(sess,inputs,state,yhat,batch_size,n_layers,\
+                                 y_np,Con_np,X_np,Dis_np,init_tot_list)
+    return y_SI/repeat
        
 def loss_func(Weight,yhat,y):
     return np.sqrt(np.sum(Weight*(np.log((yhat+1)/(y+1)))**2)/np.sum(Weight)/16)
