@@ -433,8 +433,10 @@ def init_state_update(sess,inputs,state,batch_size,d,n_layers,y_np,Con_np,X_np,C
     init_tot_list = np.concatenate(init_tot_list,0)
     return init_tot_list
 
+LSTM2list = lambda x: [x.c,x.h]
+
 def init_state_update_LSTM(sess,inputs,state,batch_size,d,n_layers,y_np,Con_np,X_np,Count_np,Dis_np):
-    #TODO
+    # return shape (B,d,2,layers)
     init_state = tuple([tf.contrib.rnn.LSTMStateTuple(np.zeros((batch_size,d),dtype=np.float32),\
                                                       np.zeros((batch_size,d),dtype=np.float32))\
                                                         for i in range(n_layers)]) 
@@ -450,10 +452,31 @@ def init_state_update_LSTM(sess,inputs,state,batch_size,d,n_layers,y_np,Con_np,X
                         [np.stack([Con_np[b:b+batch_size,t_+1:t_+2],y_np[b:b+batch_size,t_:t_+1]],-1)]\
                          + [dis[b:b+batch_size,t_+1:t_+2] for dis in Dis_np]\
                          + X_list_ + [t_==0,init_state])))
-            init_list.append(np.stack(init_state,2))
-        init_tot_list.append(np.stack(init_list,3)[np.arange(count_.shape[0]),:,:,count_-2]) 
+            init_list.append(np.stack([np.stack(LSTM2list(element),2) for element in init_state],3))
+        init_tot_list.append(np.stack(init_list,4)[np.arange(count_.shape[0]),:,:,:,count_-2]) 
     init_tot_list = np.concatenate(init_tot_list,0)
     return init_tot_list
+
+def RNN_forecast_LSTM(sess,inputs,state,yhat,batch_size,n_layers,\
+                 y_np,Con_np,X_np,Dis_np,init_tot_list):
+    # y_np is of shape (B,) for the last point in time sales
+    n,T_ = Con_np.shape
+    y_tot_list = []
+    for b in range(0,n,batch_size):
+        X_list_ = list(X_np[b:b+batch_size].T)
+        y_list = []
+        for t_ in range(0,T_):
+            if t_ == 0:
+                init_state = tuple([tf.contrib.rnn.LSTMStateTuple(temp_.squeeze()[:,:,0],temp_.squeeze()[:,:,1]) \
+                                    for temp_ in np.split(init_tot_list[b:b+batch_size],n_layers,3)])
+            init_state,y_np[b:b+batch_size] = sess.run([state,yhat],dict(zip(inputs[2:-2] + [inputs[-1]],\
+                        [np.stack([Con_np[b:b+batch_size,t_:t_+1],y_np[b:b+batch_size]],-1)]\
+                         + [dis[b:b+batch_size,t_:t_+1] for dis in Dis_np]\
+                         + X_list_ + [False,init_state])))
+            y_list.append(np.copy(y_np[b:b+batch_size].squeeze()))
+        y_tot_list.append(np.stack(y_list,1)) 
+    y_tot_list = np.concatenate(y_tot_list,0)
+    return y_tot_list
 
 
 def RNN_forecast(sess,inputs,state,yhat,batch_size,n_layers,\
@@ -475,11 +498,6 @@ def RNN_forecast(sess,inputs,state,yhat,batch_size,n_layers,\
         y_tot_list.append(np.stack(y_list,1)) 
     y_tot_list = np.concatenate(y_tot_list,0)
     return y_tot_list
-
-def RNN_forecast_LSTM(sess,inputs,state,yhat,batch_size,n_layers,\
-                 y_np,Con_np,X_np,Dis_np,init_tot_list):
-    #TODO
-    pass
 
 def RNN_forecast_Repeat(repeat,sess,inputs,state,yhat,batch_size,n_layers,\
                  y_np,Con_np,X_np,Dis_np,init_tot_list):
