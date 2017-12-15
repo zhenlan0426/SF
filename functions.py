@@ -653,15 +653,21 @@ def hyperSearch(paras):
     sess = tf.InteractiveSession()
     sess.run(tf.global_variables_initializer())
     saver.restore(sess,'RNN_fillin_01')
-    init_tot_list = init_state_update(sess,inputs,state,batch_size*10,d,n_layers,\
-                          y_np[index],Con_np[index],X_np[index],Count_np[index],\
-                          [dis[index] for dis in Dis_np])
-    y_val_hat = RNN_forecast_Repeat(10,sess,inputs,state,yhat,batch_size*10,n_layers,\
-                                    np.expand_dims(y_np[index,Count_np[index]-1],-1),\
-                                    Con_np_val,X_np_val,Dis_np_val,init_tot_list)
+    if cell_type == 'NormLSTM':
+        init_tot_list = init_state_update_LSTM(sess,inputs,state,batch_size*10,d,n_layers,\
+                      y_np[index],Con_np[index],X_np[index],Count_np[index],\
+                      [dis[index] for dis in Dis_np])
+        y_val_hat = RNN_forecast_Repeat_LSTM(10,sess,inputs,state,yhat,batch_size*10,n_layers,\
+                                        np.expand_dims(y_np[index,Count_np[index]-1],-1),\
+                                        Con_np_val,X_np_val,Dis_np_val,init_tot_list)
+    else:    
+        init_tot_list = init_state_update(sess,inputs,state,batch_size*10,d,n_layers,\
+                              y_np[index],Con_np[index],X_np[index],Count_np[index],\
+                              [dis[index] for dis in Dis_np])
+        y_val_hat = RNN_forecast_Repeat(10,sess,inputs,state,yhat,batch_size*10,n_layers,\
+                                        np.expand_dims(y_np[index,Count_np[index]-1],-1),\
+                                        Con_np_val,X_np_val,Dis_np_val,init_tot_list)
     loss = loss_func(weight_np_val[:,np.newaxis],y_val_hat,y_np_val)    
     print "loss:{} ,batch_size:{} ,seq_len:{} ,keep_prob:{} ,n_layers:{} ,grad_clip:{} ,cell_type:{} ,downsample:{} ,optimizer:{} ,actFun:{} \n"\
           .format(loss,batch_size,seq_len,keep_prob,n_layers,grad_clip,cell_type,downsample,optimizer,actFun)
     return 100 if (np.isnan(loss) or np.isinf(loss)) else loss
-    
-    
