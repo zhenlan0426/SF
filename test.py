@@ -72,3 +72,6 @@ def hyperSearch_epoch(y_np, weight_np,Con_np,Dis_np,X_np,Count_np,\
               .format(loss,i,batch_size,seq_len,keep_prob,n_layers,grad_clip,cell_type,downsample,optimizer,actFun)
 
     return best_name
+
+  
+  {'model_para':{'loss':0.65606039578,'batch_size':25,'seq_len':64,'keep_prob':0.628044403851,'n_layers':2,'grad_clip':2.99125114123,'cell_type':'NormLSTM ','optimizer':'Adam ','actFun':'relu '},'downsample':0.921508935737}
