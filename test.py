@@ -1,3 +1,22 @@
 # TODO: SI start at Store start date vs SI start date
-{'model_para':{'loss':0.65606039578,'batch_size':25,'seq_len':64,'keep_prob':0.628044403851,'n_layers':2,'grad_clip':2.99125114123,'cell_type':'NormLSTM ','optimizer':'Adam ','actFun':'relu '},'downsample':0.921508935737}
-{'model_para':{'loss':0.658355174628,'batch_size':25,'seq_len':64,'keep_prob':0.813682171767,'n_layers':2,'grad_clip':4.71494036186,'cell_type': 'highway','optimizer':'Adam','actFun':'tanh'},'downsample':0.771180461646}
+[{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.628044403851,'n_layers':2,'grad_clip':2.99125114123,'cell_type': 'NormLSTM','optimizer':'Adam','actFun':'relu'},'downsample':0.921508935737},
+{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.813682171767,'n_layers':2,'grad_clip':4.71494036186,'cell_type': 'highway','optimizer':'Adam','actFun':'tanh'},'downsample':0.771180461646},
+{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.702969880055,'n_layers':2,'grad_clip':2.01736824207,'cell_type': 'NormLSTM','optimizer':'Adam','actFun':'tanh'},'downsample':0.898455532427},
+{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.428501799036,'n_layers':3,'grad_clip':4.2006247805,'cell_type': 'NormLSTM','optimizer':'Adam','actFun':'tanh'},'downsample':0.734974933319},
+{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.459696006212,'n_layers':5,'grad_clip':5.76707667157,'cell_type': 'NormLSTM','optimizer':'Adam','actFun':'tanh'},'downsample':0.644960742075},
+{'model_para':{'batch_size':50,'seq_len':32,'keep_prob':0.427920301113,'n_layers':4,'grad_clip':6.37998154905,'cell_type': 'NormLSTM','optimizer':'Adam','actFun':'relu'},'downsample':0.467438862634},
+{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.716917304571,'n_layers':2,'grad_clip':1.7676565249,'cell_type': 'NormLSTM','optimizer':'Adam','actFun':'tanh'},'downsample':0.940803705956},
+{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.677708118391,'n_layers':3,'grad_clip':1.0014287617,'cell_type': 'NormLSTM','optimizer':'Adam','actFun':'tanh'},'downsample':0.810976906715},
+{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.801469391508,'n_layers':5,'grad_clip':2.86814589654,'cell_type': 'highway','optimizer':'Adam','actFun':'tanh'},'downsample':0.719331346325},
+{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.819993479712,'n_layers':2,'grad_clip':4.74376042578,'cell_type': 'highway','optimizer':'Adam','actFun':'tanh'},'downsample':0.782327028395},
+{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.415802367601,'n_layers':4,'grad_clip':6.38154110535,'cell_type': 'NormLSTM','optimizer':'Adam','actFun':'tanh'},'downsample':0.684181659341},
+{'model_para':{'batch_size':100,'seq_len':16,'keep_prob':0.670033419799,'n_layers':2,'grad_clip':1.40163749265,'cell_type': 'highway','optimizer':'Adam','actFun':'tanh'},'downsample':0.82368610599},
+{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.524084618388,'n_layers':3,'grad_clip':7.3201240237,'cell_type': 'NormLSTM','optimizer':'Adam','actFun':'relu'},'downsample':0.520909052689},
+{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.745017883177,'n_layers':2,'grad_clip':7.89519173494,'cell_type': 'highway','optimizer':'Adam','actFun':'tanh'},'downsample':0.902410343017},
+{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.400749504666,'n_layers':4,'grad_clip':4.14237357172,'cell_type': 'NormLSTM','optimizer':'Adam','actFun':'relu'},'downsample':0.913470970128},
+{'model_para':{'batch_size':50,'seq_len':32,'keep_prob':0.897205518497,'n_layers':3,'grad_clip':4.95813489272,'cell_type': 'NormLSTM','optimizer':'Adam','actFun':'relu'},'downsample':0.583659186288},
+{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.64949104808,'n_layers':2,'grad_clip':2.23405885747,'cell_type': 'NormLSTM','optimizer':'Adam','actFun':'tanh'},'downsample':0.670332198251},
+{'model_para':{'batch_size':50,'seq_len':32,'keep_prob':0.732932282822,'n_layers':2,'grad_clip':1.32638769648,'cell_type': 'highway','optimizer':'Adam','actFun':'tanh'},'downsample':0.694517667059},
+{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.464332365322,'n_layers':2,'grad_clip':4.33557727242,'cell_type': 'NormLSTM','optimizer':'Adam','actFun':'tanh'},'downsample':0.941907479812},
+{'model_para':{'batch_size':25,'seq_len':64,'keep_prob':0.877049685508,'n_layers':3,'grad_clip':6.13619058959,'cell_type': 'NormLSTM','optimizer':'Adam','actFun':'tanh'},'downsample':0.884550903377},
+]
