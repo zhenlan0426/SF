@@ -756,3 +756,59 @@ def hyperSearch_epoch(paras,fixedPara,learningRate,index,SavePath,check_points=[
             print "loss:{} ,epoch:{} \n".format(loss,i)
 
     return best_name
+
+
+def RNN_Train_Forecast(paras,fixedPara,learningRate,epoch,SavePath,repeat,\
+                       y_np, weight_np,Con_np,Dis_np,X_np,Count_np,\
+                       Con_np_val,X_np_val,Dis_np_val):
+    downsample = paras['downsample']
+    RNN_paras = paras['model_para'].copy()    
+    RNN_paras.update(fixedPara)
+   
+    # Training
+    inputs,train_op,cost,saver,yhat,state = createGraphRNN2(**RNN_paras)
+    sess = tf.InteractiveSession()
+    sess.run(tf.global_variables_initializer())
+    
+    model_name = '-'
+    model_name = model_name.join([name+':'+str(value) for name,value in [i for i in paras['model_para'].iteritems()]+[('downsample',downsample)]])
+    init_state = tuple([tf.contrib.rnn.LSTMStateTuple(np.zeros((RNN_paras['batch_size'],RNN_paras['d']),\
+                                                                   dtype=np.float32),\
+                                                      np.zeros((RNN_paras['batch_size'],RNN_paras['d']),\
+                                                                   dtype=np.float32))\
+                                                    for i in range(RNN_paras['n_layers'])]) \
+                 if RNN_paras['cell_type'] == 'NormLSTM' else \
+                 tuple([np.zeros((RNN_paras['batch_size'],RNN_paras['d']),dtype=np.float32) \
+                        for i in range(RNN_paras['n_layers'])]) 
+    for i in range(epoch):
+        for j,X_nps in enumerate(RNN_generator(y_np, weight_np,Con_np,Dis_np,X_np,Count_np,\
+                                  RNN_paras['batch_size'],RNN_paras['seq_len'],10000,downSample=downsample)):
+            _,init_state = sess.run([train_op,state],\
+                                 dict(zip(inputs,X_nps+[learningRate,init_state])))
+        
+    saver.save(sess,SavePath+'/'+model_name)
+    
+    # Forecast
+    RNN_paras['batch_size'] = None
+    RNN_paras['seq_len'] = 1        
+    inputs,train_op,cost,saver,yhat,state = createGraphRNN2(**RNN_paras)
+    sess = tf.InteractiveSession()
+    sess.run(tf.global_variables_initializer())
+    saver.restore(sess,SavePath+'/'+model_name)
+    
+    if RNN_paras['cell_type'] == 'NormLSTM':
+        init_tot_list = init_state_update_LSTM(sess,inputs,state,1000,d,RNN_paras['n_layers'],\
+                      y_np[index],Con_np[index],X_np[index],Count_np[index],\
+                      [dis[index] for dis in Dis_np])
+        y_val_hat = RNN_forecast_Repeat_LSTM(repeat,sess,inputs,state,yhat,1000,RNN_paras['n_layers'],\
+                                        np.expand_dims(y_np[index,Count_np[index]-1],-1),\
+                                        Con_np_val,X_np_val,Dis_np_val,init_tot_list)
+    else:    
+        init_tot_list = init_state_update(sess,inputs,state,1000,d,RNN_paras['n_layers'],\
+                              y_np[index],Con_np[index],X_np[index],Count_np[index],\
+                              [dis[index] for dis in Dis_np])
+        y_val_hat = RNN_forecast_Repeat(repeat,sess,inputs,state,yhat,1000,RNN_paras['n_layers'],\
+                                        np.expand_dims(y_np[index,Count_np[index]-1],-1),\
+                                        Con_np_val,X_np_val,Dis_np_val,init_tot_list)
+        
+    return y_val_hat    
