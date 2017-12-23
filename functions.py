@@ -8,6 +8,9 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 import cPickle
+import os
+import re
+
 
 def isConsecutive(seq):
     # if non-consecutive, need to re-map to consecutive number starting from 1
@@ -338,8 +341,8 @@ def createGraphRNN(batch_size,seq_len,cardinalitys_X,cardinalitys_T,dimentions_X
     Xt1 = tf.concat([tf.nn.embedding_lookup(emb,x) for emb,x in zip(embedding_Xt,Xt)] + [X_continuous],2)
     X1 = tf.concat([tf.nn.embedding_lookup(emb,x) for emb,x in zip(embedding_X,X)],1)    
     Xall = [tf.concat([xt,X1],1) for xt in tf.unstack(Xt1,axis=1)]
-    cell = tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.GRUCell(d),output_keep_prob=keep_prob)
-    cell = tf.contrib.rnn.MultiRNNCell([cell]*n_layers)
+    cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.GRUCell(d),output_keep_prob=keep_prob) \
+                                        for _ in range(n_layers)])
     weights_init = tf.Variable(tf.truncated_normal([dX,d*n_layers],
                         stddev=1.0 / np.sqrt(dX)),name='weights_init')
     biases_init = tf.Variable(tf.zeros([d*n_layers]),
@@ -574,24 +577,28 @@ def createGraphRNN2(batch_size,seq_len,cardinalitys_X,cardinalitys_T,dimentions_
         actFun = tf.tanh
     else:
         actFun = tf.nn.relu
-    
+    # [lstm_cell() for _ in range(number_of_layers)])
     if cell_type == 'residual':
-        cell = tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.ResidualWrapper(tf.contrib.rnn.GRUCell(d,actFun)),output_keep_prob=keep_prob)
+        cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.ResidualWrapper(\
+                                            tf.contrib.rnn.GRUCell(d,actFun)),output_keep_prob=keep_prob)\
+                                            for _ in range(n_layers)])
         init_state = tuple([tf.placeholder(tf.float32, [batch_size,d], name='initState_'+str(i)) for i in range(n_layers)])
         factor = 1
     elif cell_type == 'highway':
-        cell = tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.HighwayWrapper(tf.contrib.rnn.GRUCell(d,actFun)),output_keep_prob=keep_prob)
+        cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.HighwayWrapper(\
+                                            tf.contrib.rnn.GRUCell(d,actFun)),output_keep_prob=keep_prob)\
+                                            for _ in range(n_layers)])        
         init_state = tuple([tf.placeholder(tf.float32, [batch_size,d], name='initState_'+str(i)) for i in range(n_layers)])
         factor = 1
     elif cell_type == 'NormLSTM':
-        cell = tf.contrib.rnn.LayerNormBasicLSTMCell(d,activation=actFun,dropout_keep_prob=keep_prob)
+        cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.LayerNormBasicLSTMCell(d,activation=actFun,dropout_keep_prob=keep_prob)\
+                                            for _ in range(n_layers)])
         init_state = tuple([tf.contrib.rnn.LSTMStateTuple(tf.placeholder(tf.float32, [batch_size,d], name='initC_'+str(i)),\
                                                           tf.placeholder(tf.float32, [batch_size,d], name='initH_'+str(i))) \
                             for i in range(n_layers)])
         factor = 2
         
     inputs = [y,Weight,X_continuous] + Xt + X + [IsStart,learning_rate,init_state]
-    cell = tf.contrib.rnn.MultiRNNCell([cell]*n_layers)
     weights_init = tf.Variable(tf.truncated_normal([dX,d*n_layers*factor],
                         stddev=1.0 / np.sqrt(dX)),name='weights_init')
     biases_init = tf.Variable(tf.zeros([d*n_layers*factor]),
@@ -671,3 +678,81 @@ def hyperSearch(paras):
     print "loss:{} ,batch_size:{} ,seq_len:{} ,keep_prob:{} ,n_layers:{} ,grad_clip:{} ,cell_type:{} ,downsample:{} ,optimizer:{} ,actFun:{} \n"\
           .format(loss,batch_size,seq_len,keep_prob,n_layers,grad_clip,cell_type,downsample,optimizer,actFun)
     return 100 if (np.isnan(loss) or np.isinf(loss)) else loss
+
+def purge(dir, pattern):
+    for f in os.listdir(dir):
+        if re.search(pattern, f):
+            os.remove(os.path.join(dir, f))
+
+def hyperSearch_epoch(paras,fixedPara,learningRate,index,SavePath,check_points=[15,20,25,30]):
+    downsample = paras['downsample']
+    RNN_paras = paras['model_para'].copy()
+    check_points = [i*100/RNN_paras['batch_size'] for i in check_points]
+    print RNN_paras
+    print '\n'
+    
+    RNN_paras.update(fixedPara)
+    RNN_paras_oneStep = RNN_paras.copy()
+    RNN_paras_oneStep['batch_size'] = None
+    RNN_paras_oneStep['seq_len'] = 1
+    
+    inputs,train_op,cost,saver,yhat,state = createGraphRNN2(**RNN_paras)
+    sess = tf.InteractiveSession()
+    sess.run(tf.global_variables_initializer())
+    
+    model_name = '-'
+    model_name = model_name.join([name+':'+str(value) for name,value in [i for i in paras['model_para'].iteritems()]+[('downsample',downsample)]])
+    best_name = ''
+    best_loss = 100
+    init_state = tuple([tf.contrib.rnn.LSTMStateTuple(np.zeros((RNN_paras['batch_size'],RNN_paras['d']),\
+                                                                   dtype=np.float32),\
+                                                      np.zeros((RNN_paras['batch_size'],RNN_paras['d']),\
+                                                                   dtype=np.float32))\
+                                                    for i in range(RNN_paras['n_layers'])]) \
+                 if RNN_paras['cell_type'] == 'NormLSTM' else \
+                 tuple([np.zeros((RNN_paras['batch_size'],RNN_paras['d']),dtype=np.float32) \
+                        for i in range(RNN_paras['n_layers'])]) 
+    for i in range(1,max(check_points)+1):
+        for j,X_nps in enumerate(RNN_generator(y_np, weight_np,Con_np,Dis_np,X_np,Count_np,\
+                                  RNN_paras['batch_size'],RNN_paras['seq_len'],10000,downSample=downsample)):
+            _,init_state = sess.run([train_op,state],\
+                                 dict(zip(inputs,X_nps+[learningRate,init_state])))
+        
+        if i in check_points:
+            saver.save(sess,'RNN_temp_model')
+            inputs,train_op,cost,saver,yhat,state = createGraphRNN2(**RNN_paras_oneStep)
+            sess = tf.InteractiveSession()
+            sess.run(tf.global_variables_initializer())
+            saver.restore(sess,'RNN_temp_model')
+
+            if RNN_paras['cell_type'] == 'NormLSTM':
+                init_tot_list = init_state_update_LSTM(sess,inputs,state,1000,d,RNN_paras['n_layers'],\
+                              y_np[index],Con_np[index],X_np[index],Count_np[index],\
+                              [dis[index] for dis in Dis_np])
+                y_val_hat = RNN_forecast_Repeat_LSTM(10,sess,inputs,state,yhat,1000,RNN_paras['n_layers'],\
+                                                np.expand_dims(y_np[index,Count_np[index]-1],-1),\
+                                                Con_np_val,X_np_val,Dis_np_val,init_tot_list)
+            else:    
+                init_tot_list = init_state_update(sess,inputs,state,1000,d,RNN_paras['n_layers'],\
+                                      y_np[index],Con_np[index],X_np[index],Count_np[index],\
+                                      [dis[index] for dis in Dis_np])
+                y_val_hat = RNN_forecast_Repeat(10,sess,inputs,state,yhat,1000,RNN_paras['n_layers'],\
+                                                np.expand_dims(y_np[index,Count_np[index]-1],-1),\
+                                                Con_np_val,X_np_val,Dis_np_val,init_tot_list)
+            loss = loss_func(weight_np_val[:,np.newaxis],y_val_hat,y_np_val)                
+            if loss < best_loss:
+                if best_name != '':
+                    purge(SavePath, best_name+'*')
+                fullPath = SavePath+'/'+model_name+'-epoch:'+str(i)
+                saver.save(sess,fullPath)
+                best_name = model_name+'-epoch:'+str(i)
+                best_loss = loss
+
+            inputs,train_op,cost,saver,yhat,state = createGraphRNN2(**RNN_paras)
+            sess = tf.InteractiveSession()
+            sess.run(tf.global_variables_initializer())
+            saver.restore(sess,'RNN_temp_model')
+
+            print "loss:{} ,epoch:{} \n".format(loss,i)
+
+    return best_name
