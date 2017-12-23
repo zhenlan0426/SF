@@ -780,7 +780,7 @@ def RNN_Train_Forecast(paras,fixedPara,learningRate,epoch,SavePath,repeat,\
                  if RNN_paras['cell_type'] == 'NormLSTM' else \
                  tuple([np.zeros((RNN_paras['batch_size'],RNN_paras['d']),dtype=np.float32) \
                         for i in range(RNN_paras['n_layers'])]) 
-    for i in range(epoch):
+    for i in range(epoch*100/RNN_paras['batch_size']):
         for j,X_nps in enumerate(RNN_generator(y_np, weight_np,Con_np,Dis_np,X_np,Count_np,\
                                   RNN_paras['batch_size'],RNN_paras['seq_len'],10000,downSample=downsample)):
             _,init_state = sess.run([train_op,state],\
