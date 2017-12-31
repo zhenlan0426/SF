@@ -1019,22 +1019,26 @@ def createGraphRNN_dynamic(batch_size,seq_len,cardinalitys_X,cardinalitys_T,dime
         actFun = tf.nn.relu
     
     if cell_type == 'residual':
-        cell = tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.ResidualWrapper(tf.contrib.rnn.GRUCell(d,actFun)),output_keep_prob=keep_prob)
+        cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.ResidualWrapper(\
+                                            tf.contrib.rnn.GRUCell(d,actFun)),output_keep_prob=keep_prob)\
+                                            for _ in range(n_layers)])
         init_state = tuple([tf.placeholder(tf.float32, [batch_size,d], name='initState_'+str(i)) for i in range(n_layers)])
         factor = 1
     elif cell_type == 'highway':
-        cell = tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.HighwayWrapper(tf.contrib.rnn.GRUCell(d,actFun)),output_keep_prob=keep_prob)
+        cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.HighwayWrapper(\
+                                            tf.contrib.rnn.GRUCell(d,actFun)),output_keep_prob=keep_prob)\
+                                            for _ in range(n_layers)])        
         init_state = tuple([tf.placeholder(tf.float32, [batch_size,d], name='initState_'+str(i)) for i in range(n_layers)])
         factor = 1
     elif cell_type == 'NormLSTM':
-        cell = tf.contrib.rnn.LayerNormBasicLSTMCell(d,activation=actFun,dropout_keep_prob=keep_prob)
+        cell = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.LayerNormBasicLSTMCell(d,activation=actFun,dropout_keep_prob=keep_prob)\
+                                            for _ in range(n_layers)])
         init_state = tuple([tf.contrib.rnn.LSTMStateTuple(tf.placeholder(tf.float32, [batch_size,d], name='initC_'+str(i)),\
                                                           tf.placeholder(tf.float32, [batch_size,d], name='initH_'+str(i))) \
                             for i in range(n_layers)])
         factor = 2
         
     inputs = [y,Weight,X_continuous] + Xt + X + [IsStart,y0,learning_rate,init_state]
-    cell = tf.contrib.rnn.MultiRNNCell([cell]*n_layers)
     weights_init = tf.Variable(tf.truncated_normal([dX,d*n_layers*factor],
                         stddev=1.0 / np.sqrt(dX)),name='weights_init')
     biases_init = tf.Variable(tf.zeros([d*n_layers*factor]),
@@ -1082,24 +1086,29 @@ def createGraphRNN_dynamic(batch_size,seq_len,cardinalitys_X,cardinalitys_T,dime
 
 def hyperSearch2(paras):   
     # paras[0] is one of the modelName
-    model_para = model_paras[paras[0]]
+    model_para = model_para_list[paras[0]]['model_para'].copy()
+    model_name = 'grad_clip:{}-cell_type:{}-optimizer:{}-actFun:{}-seq_len:{}-n_layers:{}-keep_prob:{}-batch_size:{}-downsample:{}'\
+                 .format(model_para['grad_clip'],model_para['cell_type'],model_para['optimizer'],model_para['actFun'],model_para['seq_len'],\
+                         model_para['n_layers'],model_para['keep_prob'],model_para['batch_size'],model_para_list[paras[0]]['downsample']) 
     model_para['batch_size'] = paras[1]
     model_para['seq_len'] = paras[2]
     model_para['grad_clip'] = paras[3]
-    model_para['optimizer'] = paras[4]
-    trainMode = paras[5]
+    model_para['optimizer'] = paras[4] 
+    model_para.update(fixedPara)
+    trainModeParas = paras[5]
     downsample = paras[6]
-    startDate = paras[7]
-    if trainMode == 'dynamic':
-        model_para['StopGrad'] = paras[8]
+    startDate = 0 # set to zero as there is only 64 days
+    if trainModeParas['trainMode'] == 'dynamic':
+        model_para['StopGrad'] = trainModeParas['StopGrad']
         inputs,train_op,cost,saver,yhat,state = createGraphRNN_dynamic(**model_para)
     else:
         inputs,train_op,cost,saver,yhat,state = createGraphRNN2(**model_para)
         
     sess = tf.InteractiveSession()
     sess.run(tf.global_variables_initializer())
-    saver.restore(sess,paras[0])
+    saver.restore(sess,path+model_name)
     
+    # Training
     init_state = tuple([tf.contrib.rnn.LSTMStateTuple(np.zeros((model_para['batch_size'],model_para['d']),dtype=np.float32),\
                                                       np.zeros((model_para['batch_size'],model_para['d']),dtype=np.float32))\
                                                     for i in range(model_para['n_layers'])]) \
@@ -1107,27 +1116,29 @@ def hyperSearch2(paras):
                  tuple([np.zeros((model_para['batch_size'],model_para['d']),dtype=np.float32) \
                         for i in range(model_para['n_layers'])]) 
         
-    generator_ = RNN_generator_dynamic if trainMode == 'dynamic' else RNN_generator_static
+    generator_ = RNN_generator_dynamic if trainModeParas['trainMode'] == 'dynamic' else RNN_generator_static
     for i in range(epoch):
-        for X_nps in generator_(y_np_FT, weight_np_FT,Con_np_FT,Dis_list_FT,X_np_FT,\
+        for X_nps in generator_(y_np, weight_np,Con_np,Dis_np,X_np,\
                                 paras[1],paras[2],startDate=startDate,downSample=downsample):
             _,init_state = sess.run([train_op,state],\
                                  dict(zip(inputs,X_nps+[learningRate2,init_state])))
            
-    saver.save(sess,paras[0]+'+FT')
+    saver.save(sess,'RNN_SS_temp')
         
-    # testing        
+    # Testing        
     model_para2 = model_para.copy()
     model_para2['batch_size'] = None
-    model_para['seq_len'] = 16
+    model_para2['seq_len'] = 16
+    if trainModeParas['trainMode'] == 'dynamic':
+        del model_para2['StopGrad']
     inputs,train_op,cost,saver,yhat,state = createGraphRNN2(**model_para2)   
     sess = tf.InteractiveSession()
     sess.run(tf.global_variables_initializer())
-    saver.restore(sess,paras[0]+'+FT')
+    saver.restore(sess,'RNN_SS_temp')
     
-    # get init_state
+    ## get init_state
     init_tot_list = []
-    for X_nps in RNN_generator_static(y_np_FT, weight_np_FT,Con_np_FT,Dis_list_FT,X_np_FT,\
+    for X_nps in RNN_generator_static(y_np, weight_np,Con_np,Dis_np,X_np,\
                                       100,16,startDate=startDate,downSample=1,iterAll=True,permutate=False):
         if X_nps[-1]:
             init_tot_list.append(init_state)
@@ -1136,19 +1147,21 @@ def hyperSearch2(paras):
     init_tot_list = init_tot_list[1:]
     
     # prediction    
+    model_para2['StopGrad'] = False # does not matter for prediction
     inputs,train_op,cost,saver,yhat,state = createGraphRNN_dynamic(**model_para2)
     sess = tf.InteractiveSession()
     sess.run(tf.global_variables_initializer())
-    saver.restore(sess,paras[0]+'+FT')
+    saver.restore(sess,'RNN_SS_temp')
     
     loss = 0
     w_ = 0         
-    for i,X_nps in enumerate(RNN_generator_dynamic(y_np_val, weight_np_val,Con_np_val,Dis_list_val,X_np_val,\
+    for i,X_nps in enumerate(RNN_generator_dynamic(y_np_val, weight_np_val,Con_np_val,Dis_np_val,X_np_val,\
                                                  100,16,startDate=0,downSample=1,iterAll=True,permutate=False)): 
         X_nps[-2] = False
         loss = loss + sess.run(cost,dict(zip(inputs,X_nps+[learningRate2,init_tot_list[i]])))*X_nps[0].shape[0]
         w_ = w_ + np.sum(X_nps[2])
     loss = np.sqrt(loss/w_)
-    print "loss:{} ,batch_size:{} ,seq_len:{} ,keep_prob:{} ,n_layers:{} ,grad_clip:{} ,cell_type:{} ,downsample:{} ,optimizer:{} ,actFun:{} \n"\
-          .format(loss,batch_size,seq_len,keep_prob,n_layers,grad_clip,cell_type,downsample,optimizer,actFun)
+    print "loss:{} , model:{}, trainMode:{}, batch_size:{} ,seq_len:{} ,grad_clip:{} ,downsample:{} ,optimizer:{}  \n"\
+          .format(loss,paras[0],trainModeParas['trainMode'],model_para['batch_size'],\
+                  model_para['seq_len'],model_para['grad_clip'],downsample,model_para['optimizer'])
     return 100 if (np.isnan(loss) or np.isinf(loss)) else loss      
