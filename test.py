@@ -1,369 +1,429 @@
-# TODO: SI start at Store start date vs SI start date
-def subset(test,train):
-    train['S_I'] = train.item_nbr + train.store_nbr/100.0
-    test['S_I'] = test.item_nbr + test.store_nbr/100.0
-    train_SI = set(train.S_I)
-    test_SI = set(test.S_I)
-    SI_intersection = train_SI & test_SI
-    index_train_SI = train.S_I.isin(SI_intersection)
-    index_test_SI = test.S_I.isin(SI_intersection)
-    return test[index_test_SI].drop('S_I',1).reset_index(drop=True),train[index_train_SI].drop('S_I',1).reset_index(drop=True)
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.14237357172-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:4-keep_prob:0.400749504666-batch_size:25-downsample:0.913470970128
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.665674175758 , model:14, trainMode:True, batch_size:50 ,seq_len:32 ,grad_clip:2.84156973097 ,downsample:0.955441360508 ,optimizer:Adam  
 
-def createDataMainSecondStage(isTrain):
-    types = {'id': 'int32',
-         'item_nbr': 'int32',
-         'store_nbr': 'int8',
-         'unit_sales': 'float32',
-         'onpromotion': bool}
-    train = pd.read_csv('train.csv',usecols=['date','item_nbr','store_nbr','unit_sales','onpromotion'],\
-                    parse_dates=['date'],dtype=types, infer_datetime_format=True)
-    train = train.fillna(2,axis=1)
-    train.onpromotion = train.onpromotion.astype(np.int8)
-    train.loc[train.unit_sales<0,'unit_sales'] = .0 # clip negative sales to zero
-    if not isTrain:
-        test = pd.read_csv('test.csv',parse_dates=['date'],dtype=types, infer_datetime_format=True)
-        test = test.fillna(2,axis=1)
-        test.onpromotion = test.onpromotion.astype(np.int8)
-    with open('item_dict_train.pickle' if isTrain else 'item_dict_final.pickle', "rb") as input_file:
-        item_dict = cPickle.load(input_file)
-    iter_mapping = lambda x: item_dict[x] if x in item_dict else 0
-    
-    items = pd.read_csv('items.csv')
-    stores = pd.read_csv('stores.csv')
-    items2 = reMapDF(items,['family','class'])
-    items2[['family','class','perishable']] = \
-            items2[['family','class','perishable']].astype('int16')
-    stores2 = reMapDF(stores,['city', 'state', 'type'])
-    stores2 = stores2.astype('int8')        
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.2006247805-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:3-keep_prob:0.428501799036-batch_size:25-downsample:0.734974933319
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.713070083161 , model:3, trainMode:False, batch_size:100 ,seq_len:16 ,grad_clip:1.87807507847 ,downsample:0.978682113505 ,optimizer:Adam  
 
-    def CreateData(data):
-        SI_train_sales = data.groupby(['store_nbr','item_nbr'])[['date','unit_sales','onpromotion']].\
-                        agg(lambda x: tuple(x)).reset_index()
-        storeTime = data.groupby(['store_nbr'])['date'].agg([np.min,np.max]).reset_index()
-        dfs = [items2,stores2,storeTime]
-        keys = ['item_nbr','store_nbr','store_nbr']
-        SI_train = mergeFillCastsss(SI_train_sales,dfs,keys)
-        SI_train['item_nbr'] = SI_train.item_nbr.map(iter_mapping)
-        SI_train['amin'] = pd.to_datetime(SI_train['amin'])
-        SI_train['amax'] = pd.to_datetime(SI_train['amax'])
-        SI_train['countDays'] = (SI_train['amax'] - SI_train['amin']).dt.days + 1
-            
-        return SI_train[['store_nbr',
-                         'item_nbr',
-                         'family',
-                         'class',
-                         'perishable',
-                         'city',
-                         'state',
-                         'type',
-                         'cluster',
-                         'date',
-                         'unit_sales', 
-                         'onpromotion',
-                         'countDays',
-                         'amin',
-                         'amax']]
-    
-    def CreateTestData(data):
-        SI_train_sales = data.groupby(['store_nbr','item_nbr'])[['date','id','onpromotion']].\
-                        agg(lambda x: tuple(x)).reset_index()
-        storeTime = data.groupby(['store_nbr'])['date'].agg([np.min,np.max]).reset_index()
-        dfs = [items2,stores2,storeTime]
-        keys = ['item_nbr','store_nbr','store_nbr']
-        SI_train = mergeFillCastsss(SI_train_sales,dfs,keys)
-        SI_train['item_nbr'] = SI_train.item_nbr.map(iter_mapping)
-        SI_train['amin'] = pd.to_datetime(SI_train['amin'])
-        SI_train['amax'] = pd.to_datetime(SI_train['amax'])
-        return SI_train[['store_nbr',
-                         'item_nbr',
-                         'family',
-                         'class',
-                         'perishable',
-                         'city',
-                         'state',
-                         'type',
-                         'cluster',
-                         'date',
-                         'id',                         
-                         'onpromotion',
-                         'amin',
-                         'amax']]
-    
-    if isTrain:
-        val = train[train.date >= '2017-07-30']
-        train = train[(train.date <= '2017-07-30') & (train.date >= '2017-05-27')]
-        valRNN,trainRNN = subset(val,train)
-        return CreateData(trainRNN).reset_index(drop=True),CreateData(valRNN).reset_index(drop=True)
-    else:
-        train = train[train.date >= '2017-06-12']
-        testRNN,trainRNN = subset(test,train)
-        return CreateData(trainRNN).reset_index(drop=True),CreateTestData(testRNN).reset_index(drop=True)
-      
-val,train = createDataMainSecondStage(True)
-train = val.loc[:,['store_nbr','item_nbr']].merge(train,'left',['store_nbr','item_nbr'])
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:1.32638769648-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:32-n_layers:2-keep_prob:0.732932282822-batch_size:50-downsample:0.694517667059
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.66813307338 , model:17, trainMode:static, batch_size:50 ,seq_len:32 ,grad_clip:1.76770484531 ,downsample:0.807445773435 ,optimizer:Adam  
 
-y_np, weight_np,Con_np,Dis_np,X_np,Count_np = \
-            pd2np(val,batch_size,val.countDays.max(),dateVar_list,'date',discreteList)
-prefix = 'val_SS'
-np.savetxt(prefix+'_Y',y_np,fmt="%f",delimiter=",") 
-np.savetxt(prefix+'_Weight',weight_np,fmt="%f",delimiter=",") 
-np.savetxt(prefix+'_Con',Con_np,fmt="%f",delimiter=",") 
-np.savetxt(prefix+'_X',X_np,fmt="%d",delimiter=",") 
-np.savetxt(prefix+'_Count',Count_np,fmt="%d",delimiter=",") 
-for j in range(len(discreteList)):
-    np.savetxt(prefix+'_Dis'+str(j),Dis_np[:,:,j],fmt="%d",delimiter=",")
-    
-y_np, weight_np,Con_np,Dis_np,X_np,Count_np = \
-            pd2np(train,batch_size,train.countDays.max(),dateVar_list,'date',discreteList)
-prefix = 'train_SS'
-np.savetxt(prefix+'_Y',y_np,fmt="%f",delimiter=",") 
-np.savetxt(prefix+'_Weight',weight_np,fmt="%f",delimiter=",") 
-np.savetxt(prefix+'_Con',Con_np,fmt="%f",delimiter=",") 
-np.savetxt(prefix+'_X',X_np,fmt="%d",delimiter=",") 
-np.savetxt(prefix+'_Count',Count_np,fmt="%d",delimiter=",") 
-for j in range(len(discreteList)):
-    np.savetxt(prefix+'_Dis'+str(j),Dis_np[:,:,j],fmt="%d",delimiter=",")
-    
-val,train = createDataMainSecondStage(False)
-train = val.loc[:,['store_nbr','item_nbr']].merge(train,'left',['store_nbr','item_nbr'])
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:6.37998154905-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:4-keep_prob:0.427920301113-batch_size:50-downsample:0.467438862634
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.700584789129 , model:5, trainMode:True, batch_size:100 ,seq_len:16 ,grad_clip:3.7079102404 ,downsample:0.829014204118 ,optimizer:Adam  
 
-y_np, weight_np,Con_np,Dis_np,X_np,Count_np = \
-            pd2np(train,batch_size,train.countDays.max(),dateVar_list,'date',discreteList)
-prefix = 'train_SS_final'
-np.savetxt(prefix+'_Y',y_np,fmt="%f",delimiter=",") 
-np.savetxt(prefix+'_Weight',weight_np,fmt="%f",delimiter=",") 
-np.savetxt(prefix+'_Con',Con_np,fmt="%f",delimiter=",") 
-np.savetxt(prefix+'_X',X_np,fmt="%d",delimiter=",") 
-np.savetxt(prefix+'_Count',Count_np,fmt="%d",delimiter=",") 
-for j in range(len(discreteList)):
-    np.savetxt(prefix+'_Dis'+str(j),Dis_np[:,:,j],fmt="%d",delimiter=",")
-    
-y_np_test, Con_np_test,Dis_np_test,X_np_test = \
-            pd2np_test(val,batch_size,16,dateVar_list,'date',discreteList)
-y_np_test, Con_np_test = \
-[np.concatenate([b[:,-1,np.newaxis],a],1) for a,b in zip([y_np_test, Con_np_test],[y_np, Con_np])]
-Dis_np_test = [np.concatenate([b[:,-1,np.newaxis],a],1) for a,b in zip(Dis_np_test,Dis_np)]
-prefix = 'test_SS_final'
-np.savetxt(prefix+'_Y',y_np_test,fmt="%d",delimiter=",") 
-np.savetxt(prefix+'_Con',Con_np_test,fmt="%f",delimiter=",") 
-np.savetxt(prefix+'_X',X_np_test,fmt="%d",delimiter=",") 
-for j in range(len(discreteList)):
-    np.savetxt(prefix+'_Dis'+str(j),Dis_np_test[:,:,j],fmt="%d",delimiter=",")
-    
-    
-def RNN_generator_static(y_np, weight_np,Con_np,Dis_list,X_np,\
-                  batchSize,seqSize,startDate,downSample=1,iterAll=False,permutate=True):
-    # time dimention needs to have T+1 as y needs a lag!!
-    # return [y (B,T),weight (B,T),Xcontinue of shape (B,T,2)] + [Xdiscrete] of shape (B,T) + [X] of shape (B,)
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:6.37998154905-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:4-keep_prob:0.427920301113-batch_size:50-downsample:0.467438862634
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.658949675905 , model:5, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:4.72452270209 ,downsample:0.978749626096 ,optimizer:Adam  
 
-    n,d = y_np.shape
-    Index_perm = np.random.permutation(n) if permutate else np.arange(n)
-    for i in range(0,n if iterAll else n-batchSize,batchSize):
-        Index_X = Index_perm[i:i+batchSize]
-        X_list_ = list(X_np[Index_X].T)
-        for t_ in range(startDate,d-1,seqSize):
-            Index_Y = np.arange(t_,t_+seqSize)
-            Index_Y_1 = np.arange(t_+1,t_+seqSize+1)
-            y_ = y_np[Index_X,Index_Y_1]
-            weight = np.ones_like(y_,dtype=np.float32)
-            weight[y_==0] = downSample            
-            yield [y_,weight_np[Index_X]*weight,\
-                     np.stack([Con_np[Index_X,Index_Y_1],y_np[Index_X,Index_Y]],-1)]\
-                     + [dis[Index_X,Index_Y_1] for dis in Dis_list]\
-                     + X_list_ + [t_==startDate] 
-                    
-                    
-def RNN_generator_dynamic(y_np, weight_np,Con_np,Dis_list,X_np,\
-                  batchSize,seqSize,startDate,downSample=1,iterAll=False,permutate=True):
-    # time dimention needs to have T+1 as y needs a lag!!
-    # return [y (B,T),weight (B,T),Xcontinue of shape (B,T,2)] + [Xdiscrete] of shape (B,T) + [X] of shape (B,)
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.2006247805-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:3-keep_prob:0.428501799036-batch_size:25-downsample:0.734974933319
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.659795691994 , model:3, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:2.15027544301 ,downsample:0.808454487708 ,optimizer:Adam  
 
-    n,d = y_np.shape
-    Index_perm = np.random.permutation(n) if permutate else np.arange(n)
-    for i in range(0,n if iterAll else n-batchSize,batchSize):
-        Index_X = Index_perm[i:i+batchSize]
-        X_list_ = list(X_np[Index_X].T)
-        for t_ in range(startDate,d-1,seqSize):
-            Index_Y = np.arange(t_,t_+seqSize)
-            Index_Y_1 = np.arange(t_+1,t_+seqSize+1)
-            y_ = y_np[Index_X,Index_Y_1]
-            weight = np.ones_like(y_,dtype=np.float32)
-            weight[y_==0] = downSample            
-            yield [y_,weight_np[Index_X]*weight,\
-                     Con_np[Index_X,Index_Y_1,np.newaxis]]\
-                     + [dis[Index_X,Index_Y_1] for dis in Dis_list]\
-                     + X_list_ + [t_==startDate,y_np[Index_X,t:t+1]]                      
-              
-                     
-def createGraphRNN_dynamic(batch_size,seq_len,cardinalitys_X,cardinalitys_T,dimentions_X,dimentions_T,\
-                           dX,d,keep_prob,n_layers,grad_clip,cell_type,optimizer,actFun,StopGrad):
-    
-    tf.reset_default_graph()
-    embedding_X = [tf.get_variable("embedding_X"+str(i), [car, dim],\
-                                   initializer=tf.truncated_normal_initializer()) \
-                for i,(car,dim) in enumerate(zip(cardinalitys_X,dimentions_X))]
-    embedding_Xt = [tf.get_variable("embedding_Xt"+str(i), [car, dim],\
-                                    initializer=tf.truncated_normal_initializer()) \
-                    for i,(car,dim) in enumerate(zip(cardinalitys_T,dimentions_T))]
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:2.01736824207-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.702969880055-batch_size:25-downsample:0.898455532427
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.671378247903 , model:2, trainMode:False, batch_size:50 ,seq_len:32 ,grad_clip:1.50701523093 ,downsample:0.880068942099 ,optimizer:Adam  
 
-    learning_rate = tf.placeholder(tf.float32,shape=[])
-    X = [tf.placeholder(tf.int32, [batch_size,], name='X_'+str(i)) for i,_ in enumerate(dimentions_X)]
-    Xt = [tf.placeholder(tf.int32, [batch_size,seq_len], name='Xt_'+str(i)) for i,_ in enumerate(dimentions_T)]
-    y0 = tf.placeholder(tf.float32,[batch_size,1])
-    X_continuous = tf.placeholder(tf.float32, [batch_size,seq_len,1], name='X_continuous')
-    Weight = tf.placeholder(tf.float32, [batch_size,seq_len], name='Weight')
-    y = tf.placeholder(tf.float32, [batch_size,seq_len], name='y')
-    IsStart = tf.placeholder(tf.bool, [], name='IsStart')
-    Xt1 = tf.concat([tf.nn.embedding_lookup(emb,x) for emb,x in zip(embedding_Xt,Xt)] + [X_continuous],2)
-    X1 = tf.concat([tf.nn.embedding_lookup(emb,x) for emb,x in zip(embedding_X,X)],1)    
-    Xall = [[xt,X1] for xt in tf.unstack(Xt1,axis=1)]
-    if actFun == 'tanh':
-        actFun = tf.tanh
-    else:
-        actFun = tf.nn.relu
-    
-    if cell_type == 'residual':
-        cell = tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.ResidualWrapper(tf.contrib.rnn.GRUCell(d,actFun)),output_keep_prob=keep_prob)
-        init_state = tuple([tf.placeholder(tf.float32, [batch_size,d], name='initState_'+str(i)) for i in range(n_layers)])
-        factor = 1
-    elif cell_type == 'highway':
-        cell = tf.contrib.rnn.DropoutWrapper(tf.contrib.rnn.HighwayWrapper(tf.contrib.rnn.GRUCell(d,actFun)),output_keep_prob=keep_prob)
-        init_state = tuple([tf.placeholder(tf.float32, [batch_size,d], name='initState_'+str(i)) for i in range(n_layers)])
-        factor = 1
-    elif cell_type == 'NormLSTM':
-        cell = tf.contrib.rnn.LayerNormBasicLSTMCell(d,activation=actFun,dropout_keep_prob=keep_prob)
-        init_state = tuple([tf.contrib.rnn.LSTMStateTuple(tf.placeholder(tf.float32, [batch_size,d], name='initC_'+str(i)),\
-                                                          tf.placeholder(tf.float32, [batch_size,d], name='initH_'+str(i))) \
-                            for i in range(n_layers)])
-        factor = 2
-        
-    inputs = [y,Weight,X_continuous] + Xt + X + [IsStart,y0,learning_rate,init_state]
-    cell = tf.contrib.rnn.MultiRNNCell([cell]*n_layers)
-    weights_init = tf.Variable(tf.truncated_normal([dX,d*n_layers*factor],
-                        stddev=1.0 / np.sqrt(dX)),name='weights_init')
-    biases_init = tf.Variable(tf.zeros([d*n_layers*factor]),
-                         name='biases_init')
-    if cell_type == 'NormLSTM':
-        init_state2 = tf.cond(IsStart,\
-                            lambda:tuple([tf.contrib.rnn.LSTMStateTuple(*tf.split(tensor_,2,1)) \
-                                          for tensor_ in tf.split(tf.matmul(X1,weights_init)+biases_init,n_layers,1)]),\
-                            lambda:init_state)
-    else:    
-        init_state2 = tf.cond(IsStart,\
-                            lambda:tuple(tf.split(tf.matmul(X1,weights_init)+biases_init,n_layers,1)),\
-                            lambda:init_state)
-        
-        
-    weights_out = tf.Variable(tf.truncated_normal([d],
-                        stddev=1.0 / np.sqrt(d)),name='weights_out')
-    biases_out = tf.Variable(tf.zeros([1]),
-                         name='biases_out')    
-    # static_rnn    
-    output,state = cell(tf.concat([Xall[0][0],y0,Xall[0][1]],1), init_state2)
-    yt_out = tf.nn.relu(tf.einsum('bp,p->b',output,weights_out) + biases_out)
-    outputs = [yt_out]
-    for rnn_input in Xall[1:]:
-        if StopGrad:
-            output,state = cell(tf.concat([rnn_input[0],tf.stop_gradient(tf.expand_dims(yt_out,1)),rnn_input[1]],1), state)
-        else:
-            output,state = cell(tf.concat([rnn_input[0],tf.expand_dims(yt_out,1),rnn_input[1]],1), state)
-        yt_out = tf.nn.relu(tf.einsum('bp,p->b',output,weights_out) + biases_out)
-        outputs.append(yt_out)
-        
-    yhat = tf.stack(outputs,1)       
-    cost = tf.reduce_mean(Weight*(tf.log((yhat+1)/(y+1)))**2)
-    tvars = tf.trainable_variables()
-    grads, _ = tf.clip_by_global_norm(tf.gradients(cost, tvars),grad_clip)
-    if optimizer =='SGD':
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate)
-    else:
-        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
-    train_op = optimizer.apply_gradients(zip(grads, tvars))
-    saver = tf.train.Saver()     
-    
-    return inputs,train_op,cost,saver,yhat,state
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:1.32638769648-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:32-n_layers:2-keep_prob:0.732932282822-batch_size:50-downsample:0.694517667059
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.668196571561 , model:17, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:3.87816263094 ,downsample:0.841111387089 ,optimizer:Adam  
 
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.14237357172-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:4-keep_prob:0.400749504666-batch_size:25-downsample:0.913470970128
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.670207169969 , model:14, trainMode:True, batch_size:25 ,seq_len:64 ,grad_clip:3.50804718761 ,downsample:0.824506965464 ,optimizer:Adam  
 
-'''setup 
-Fixed = 'keep_prob,n_layers,cell_type,actFun,cardinalitys_X,cardinalitys_T,dimentions_X,dimentions_T,dX,d'
-Tuning = 'batch_size,seq_len,grad_clip,downsample,optimizer'
-model_paras = {'nameSavedOnDisk':{'keep_prob':0.8,'n_layers':3,'cell_type':'NormLSTM','actFun':'tanh',...}}
-input_ = [y_np_FT, weight_np_FT,Con_np_FT,Dis_list_FT,X_np_FT] # fine-tuning dataset
-input2_ = [y_np_val, weight_np_val,Con_np_val,Dis_list_val,X_np_val] # test dataset
-learningRate2 = learningRate * 0.5
-'No longer needs index, as input and input2 have the same n. JUST MAKE SURE the first dimention match!!'
-setup '''
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:2.01736824207-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.702969880055-batch_size:25-downsample:0.898455532427
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.660222501695 , model:2, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:4.8027883989 ,downsample:0.831099223121 ,optimizer:Adam  
 
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.74376042578-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.819993479712-batch_size:25-downsample:0.782327028395
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.673288152353 , model:9, trainMode:True, batch_size:100 ,seq_len:16 ,grad_clip:1.77171365496 ,downsample:0.875237307211 ,optimizer:Adam  
 
-def hyperSearch2(paras):   
-    # paras[0] is one of the modelName
-    model_para = model_paras[paras[0]]
-    model_para['batch_size'] = paras[1]
-    model_para['seq_len'] = paras[2]
-    model_para['grad_clip'] = paras[3]
-    model_para['optimizer'] = paras[4]
-    trainMode = paras[5]
-    downsample = paras[6]
-    startDate = paras[7]
-    if trainMode == 'dynamic':
-        model_para['StopGrad'] = paras[8]
-        inputs,train_op,cost,saver,yhat,state = createGraphRNN_dynamic(**model_para)
-    else:
-        inputs,train_op,cost,saver,yhat,state = createGraphRNN2(**model_para)
-        
-    sess = tf.InteractiveSession()
-    sess.run(tf.global_variables_initializer())
-    saver.restore(sess,paras[0])
-    
-    init_state = tuple([tf.contrib.rnn.LSTMStateTuple(np.zeros((model_para['batch_size'],model_para['d']),dtype=np.float32),\
-                                                      np.zeros((model_para['batch_size'],model_para['d']),dtype=np.float32))\
-                                                    for i in range(model_para['n_layers'])]) \
-                 if model_para['cell_type'] == 'NormLSTM' else \
-                 tuple([np.zeros((model_para['batch_size'],model_para['d']),dtype=np.float32) \
-                        for i in range(model_para['n_layers'])]) 
-        
-    generator_ = RNN_generator_dynamic if trainMode == 'dynamic' else RNN_generator_static
-    for i in range(epoch):
-        for X_nps in generator_(y_np_FT, weight_np_FT,Con_np_FT,Dis_list_FT,X_np_FT,\
-                                paras[1],paras[2],startDate=startDate,downSample=downsample):
-            _,init_state = sess.run([train_op,state],\
-                                 dict(zip(inputs,X_nps+[learningRate2,init_state])))
-           
-    saver.save(sess,paras[0]+'+FT')
-        
-    # testing        
-    model_para2 = model_para.copy()
-    model_para2['batch_size'] = None
-    model_para['seq_len'] = 16
-    inputs,train_op,cost,saver,yhat,state = createGraphRNN2(**model_para2)   
-    sess = tf.InteractiveSession()
-    sess.run(tf.global_variables_initializer())
-    saver.restore(sess,paras[0]+'+FT')
-    
-    # get init_state
-    init_tot_list = []
-    for X_nps in RNN_generator_static(y_np_FT, weight_np_FT,Con_np_FT,Dis_list_FT,X_np_FT,\
-                                      100,16,startDate=startDate,downSample=1,iterAll=True,permutate=False):
-        if X_nps[-1]:
-            init_tot_list.append(init_state)
-        init_state = sess.run(state,dict(zip(inputs,X_nps+[learningRate2,init_state])))
-    init_tot_list.append(init_state)
-    init_tot_list = init_tot_list[1:]
-    
-    # prediction    
-    inputs,train_op,cost,saver,yhat,state = createGraphRNN_dynamic(**model_para2)
-    sess = tf.InteractiveSession()
-    sess.run(tf.global_variables_initializer())
-    saver.restore(sess,paras[0]+'+FT')
-    
-    loss = 0
-    w_ = 0         
-    for i,X_nps in enumerate(RNN_generator_dynamic(y_np_val, weight_np_val,Con_np_val,Dis_list_val,X_np_val,\
-                                                 100,16,startDate=0,downSample=1,iterAll=True,permutate=False)): 
-        X_nps[-2] = False
-        loss = loss + sess.run(cost,dict(zip(inputs,X_nps+[learningRate2,init_tot_list[i]])))*X_nps[0].shape[0]
-        w_ = w_ + np.sum(X_nps[2])
-    loss = np.sqrt(loss/w_)
-    print "loss:{} ,batch_size:{} ,seq_len:{} ,keep_prob:{} ,n_layers:{} ,grad_clip:{} ,cell_type:{} ,downsample:{} ,optimizer:{} ,actFun:{} \n"\
-          .format(loss,batch_size,seq_len,keep_prob,n_layers,grad_clip,cell_type,downsample,optimizer,actFun)
-    return 100 if (np.isnan(loss) or np.isinf(loss)) else loss          
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.74376042578-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.819993479712-batch_size:25-downsample:0.782327028395
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.664493200758 , model:9, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:4.08390999313 ,downsample:0.804327911221 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:2.23405885747-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.64949104808-batch_size:25-downsample:0.670332198251
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.662140988771 , model:16, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:4.73438484325 ,downsample:0.801031638012 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:2.99125114123-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:2-keep_prob:0.628044403851-batch_size:25-downsample:0.921508935737
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.660148376303 , model:0, trainMode:True, batch_size:50 ,seq_len:32 ,grad_clip:3.62626790993 ,downsample:0.852202114351 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:2.01736824207-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.702969880055-batch_size:25-downsample:0.898455532427
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.660205598037 , model:2, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:3.02118346849 ,downsample:0.903302216999 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:6.38154110535-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:4-keep_prob:0.415802367601-batch_size:25-downsample:0.684181659341
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.661539997474 , model:10, trainMode:static, batch_size:50 ,seq_len:32 ,grad_clip:3.04059389134 ,downsample:0.932500746463 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:1.0014287617-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:3-keep_prob:0.677708118391-batch_size:25-downsample:0.810976906715
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.659032222858 , model:7, trainMode:static, batch_size:50 ,seq_len:32 ,grad_clip:2.93884524596 ,downsample:0.9528886479 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:2.23405885747-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.64949104808-batch_size:25-downsample:0.670332198251
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.660792756891 , model:16, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:2.09732992022 ,downsample:0.984494679392 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:5.76707667157-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:5-keep_prob:0.459696006212-batch_size:25-downsample:0.644960742075
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.65610851675 , model:4, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:3.73159076992 ,downsample:0.869912404413 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:5.76707667157-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:5-keep_prob:0.459696006212-batch_size:25-downsample:0.644960742075
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.669040599261 , model:4, trainMode:True, batch_size:25 ,seq_len:64 ,grad_clip:2.79467301492 ,downsample:0.845847460253 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.33557727242-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.464332365322-batch_size:25-downsample:0.941907479812
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.660563017166 , model:18, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:4.42699489033 ,downsample:0.913691265418 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:7.89519173494-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.745017883177-batch_size:25-downsample:0.902410343017
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.669779999607 , model:13, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:4.32255281717 ,downsample:0.874589640508 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:6.13619058959-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:3-keep_prob:0.877049685508-batch_size:25-downsample:0.884550903377
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.658868714432 , model:19, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:4.97344805756 ,downsample:0.920212874321 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:6.13619058959-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:3-keep_prob:0.877049685508-batch_size:25-downsample:0.884550903377
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.659724393602 , model:19, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:3.40430844185 ,downsample:0.926851766007 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:1.40163749265-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:16-n_layers:2-keep_prob:0.670033419799-batch_size:100-downsample:0.82368610599
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.674908352343 , model:11, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:2.490732251 ,downsample:0.892519496469 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:1.7676565249-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.716917304571-batch_size:25-downsample:0.940803705956
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.665029091923 , model:6, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:4.98998684468 ,downsample:0.856696652037 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:2.86814589654-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:5-keep_prob:0.801469391508-batch_size:25-downsample:0.719331346325
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.666230776087 , model:8, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:4.31221344025 ,downsample:0.94274983949 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:7.3201240237-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:3-keep_prob:0.524084618388-batch_size:25-downsample:0.520909052689
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.65483742846 , model:12, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:4.02712167527 ,downsample:0.91399842192 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:7.3201240237-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:3-keep_prob:0.524084618388-batch_size:25-downsample:0.520909052689
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.655039050392 , model:12, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:3.21272316903 ,downsample:0.897070056373 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:7.3201240237-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:3-keep_prob:0.524084618388-batch_size:25-downsample:0.520909052689
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.656544488039 , model:12, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:1.05305688892 ,downsample:0.964957295556 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:7.3201240237-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:3-keep_prob:0.524084618388-batch_size:25-downsample:0.520909052689
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.654644357716 , model:12, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:2.6301984665 ,downsample:0.904494564533 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.95813489272-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:3-keep_prob:0.897205518497-batch_size:50-downsample:0.583659186288
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.65430036709 , model:15, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:2.56360899871 ,downsample:0.909222561359 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.95813489272-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:3-keep_prob:0.897205518497-batch_size:50-downsample:0.583659186288
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.671701130825 , model:15, trainMode:False, batch_size:25 ,seq_len:64 ,grad_clip:2.64436938298 ,downsample:0.962956172793 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.71494036186-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.813682171767-batch_size:25-downsample:0.771180461646
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.670734121615 , model:1, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:1.46140581975 ,downsample:0.939599522983 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.95813489272-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:3-keep_prob:0.897205518497-batch_size:50-downsample:0.583659186288
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.652568491716 , model:15, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:2.35067750188 ,downsample:0.890594614825 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.95813489272-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:3-keep_prob:0.897205518497-batch_size:50-downsample:0.583659186288
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.672679208936 , model:15, trainMode:False, batch_size:25 ,seq_len:64 ,grad_clip:2.32280813072 ,downsample:0.887395541287 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.95813489272-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:3-keep_prob:0.897205518497-batch_size:50-downsample:0.583659186288
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.653054701923 , model:15, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:1.06405919278 ,downsample:0.862777084962 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.95813489272-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:3-keep_prob:0.897205518497-batch_size:50-downsample:0.583659186288
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.652881856403 , model:15, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:1.25459433133 ,downsample:0.862850476405 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.2006247805-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:3-keep_prob:0.428501799036-batch_size:25-downsample:0.734974933319
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.68449625983 , model:3, trainMode:False, batch_size:25 ,seq_len:64 ,grad_clip:1.4380966773 ,downsample:0.81908300769 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.95813489272-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:3-keep_prob:0.897205518497-batch_size:50-downsample:0.583659186288
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.652517595394 , model:15, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:1.97950469671 ,downsample:0.834093191043 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:6.37998154905-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:4-keep_prob:0.427920301113-batch_size:50-downsample:0.467438862634
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.657082858349 , model:5, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:2.01713124321 ,downsample:0.832894915843 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.14237357172-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:4-keep_prob:0.400749504666-batch_size:25-downsample:0.913470970128
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.668050591643 , model:14, trainMode:False, batch_size:25 ,seq_len:64 ,grad_clip:2.30226993366 ,downsample:0.997567444684 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:1.32638769648-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:32-n_layers:2-keep_prob:0.732932282822-batch_size:50-downsample:0.694517667059
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.667720502224 , model:17, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:1.71101098001 ,downsample:0.814180548902 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:2.99125114123-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:2-keep_prob:0.628044403851-batch_size:25-downsample:0.921508935737
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.653787097353 , model:0, trainMode:static, batch_size:50 ,seq_len:32 ,grad_clip:1.89329100079 ,downsample:0.841654681717 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.33557727242-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.464332365322-batch_size:25-downsample:0.941907479812
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.67488155866 , model:18, trainMode:dynamic, batch_size:25 ,seq_len:64 ,grad_clip:2.04999564163 ,downsample:0.830262757894 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.2006247805-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:3-keep_prob:0.428501799036-batch_size:25-downsample:0.734974933319
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.661653001179 , model:3, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:1.75954951587 ,downsample:0.889303138611 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.2006247805-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:3-keep_prob:0.428501799036-batch_size:25-downsample:0.734974933319
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.658965981031 , model:3, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:2.11627148084 ,downsample:0.841445601489 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:1.40163749265-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:16-n_layers:2-keep_prob:0.670033419799-batch_size:100-downsample:0.82368610599
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.685967000903 , model:11, trainMode:dynamic, batch_size:100 ,seq_len:16 ,grad_clip:1.73355849728 ,downsample:0.897687030291 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.71494036186-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.813682171767-batch_size:25-downsample:0.771180461646
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.670923318 , model:1, trainMode:static, batch_size:50 ,seq_len:32 ,grad_clip:3.32143263142 ,downsample:0.832052876092 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:2.99125114123-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:2-keep_prob:0.628044403851-batch_size:25-downsample:0.921508935737
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.676860583183 , model:0, trainMode:dynamic, batch_size:100 ,seq_len:16 ,grad_clip:4.95191287874 ,downsample:0.962941188392 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:1.0014287617-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:3-keep_prob:0.677708118391-batch_size:25-downsample:0.810976906715
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.658591880155 , model:7, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:3.82962064686 ,downsample:0.876162909286 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.2006247805-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:3-keep_prob:0.428501799036-batch_size:25-downsample:0.734974933319
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.691848128563 , model:3, trainMode:dynamic, batch_size:50 ,seq_len:32 ,grad_clip:2.80129176167 ,downsample:0.883441345261 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.14237357172-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:4-keep_prob:0.400749504666-batch_size:25-downsample:0.913470970128
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.670398217871 , model:14, trainMode:dynamic, batch_size:25 ,seq_len:64 ,grad_clip:1.07067726337 ,downsample:0.906602174114 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:2.01736824207-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.702969880055-batch_size:25-downsample:0.898455532427
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.662351383569 , model:2, trainMode:static, batch_size:50 ,seq_len:32 ,grad_clip:1.16151430935 ,downsample:0.942108565316 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:5.76707667157-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:5-keep_prob:0.459696006212-batch_size:25-downsample:0.644960742075
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.691211715872 , model:4, trainMode:dynamic, batch_size:100 ,seq_len:16 ,grad_clip:4.5589310968 ,downsample:0.838004172509 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:5.76707667157-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:5-keep_prob:0.459696006212-batch_size:25-downsample:0.644960742075
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.656388929076 , model:4, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:4.95165392703 ,downsample:0.968216295808 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:1.0014287617-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:3-keep_prob:0.677708118391-batch_size:25-downsample:0.810976906715
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.677057557707 , model:7, trainMode:dynamic, batch_size:25 ,seq_len:64 ,grad_clip:3.91548315452 ,downsample:0.825063361661 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.71494036186-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.813682171767-batch_size:25-downsample:0.771180461646
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.672057265322 , model:1, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:2.89802179009 ,downsample:0.966133725559 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.14237357172-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:4-keep_prob:0.400749504666-batch_size:25-downsample:0.913470970128
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.670566322935 , model:14, trainMode:dynamic, batch_size:100 ,seq_len:16 ,grad_clip:1.79054215676 ,downsample:0.888848365738 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:1.40163749265-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:16-n_layers:2-keep_prob:0.670033419799-batch_size:100-downsample:0.82368610599
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.697965811484 , model:11, trainMode:dynamic, batch_size:25 ,seq_len:64 ,grad_clip:4.59485381401 ,downsample:0.814420963286 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:2.23405885747-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.64949104808-batch_size:25-downsample:0.670332198251
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.660361597333 , model:16, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:2.74745074337 ,downsample:0.954186900737 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:1.40163749265-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:16-n_layers:2-keep_prob:0.670033419799-batch_size:100-downsample:0.82368610599
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.686054514342 , model:11, trainMode:dynamic, batch_size:100 ,seq_len:16 ,grad_clip:2.83180028626 ,downsample:0.937896085207 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:1.7676565249-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.716917304571-batch_size:25-downsample:0.940803705956
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.674104930157 , model:6, trainMode:dynamic, batch_size:50 ,seq_len:32 ,grad_clip:3.99792544505 ,downsample:0.801165429531 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:6.38154110535-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:4-keep_prob:0.415802367601-batch_size:25-downsample:0.684181659341
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.679874491685 , model:10, trainMode:dynamic, batch_size:50 ,seq_len:32 ,grad_clip:1.33593231478 ,downsample:0.921415092179 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:6.37998154905-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:4-keep_prob:0.427920301113-batch_size:50-downsample:0.467438862634
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.657679884664 , model:5, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:3.70189408648 ,downsample:0.99589626647 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:6.37998154905-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:4-keep_prob:0.427920301113-batch_size:50-downsample:0.467438862634
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.658223751401 , model:5, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:4.97399111737 ,downsample:0.997581828452 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:7.89519173494-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.745017883177-batch_size:25-downsample:0.902410343017
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.667353756157 , model:13, trainMode:static, batch_size:25 ,seq_len:64 ,grad_clip:4.30139718169 ,downsample:0.997425311691 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:7.3201240237-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:3-keep_prob:0.524084618388-batch_size:25-downsample:0.520909052689
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.655744751602 , model:12, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:3.38670589235 ,downsample:0.976689949378 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:7.3201240237-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:3-keep_prob:0.524084618388-batch_size:25-downsample:0.520909052689
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.655392569973 , model:12, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:3.33083638741 ,downsample:0.979224911006 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:7.3201240237-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:3-keep_prob:0.524084618388-batch_size:25-downsample:0.520909052689
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.656217208238 , model:12, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:3.27614332751 ,downsample:0.983721041482 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:7.3201240237-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:3-keep_prob:0.524084618388-batch_size:25-downsample:0.520909052689
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.655417221421 , model:12, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:3.37007295748 ,downsample:0.982202519386 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.95813489272-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:3-keep_prob:0.897205518497-batch_size:50-downsample:0.583659186288
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.652543746506 , model:15, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:2.36623978513 ,downsample:0.861820507627 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.95813489272-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:3-keep_prob:0.897205518497-batch_size:50-downsample:0.583659186288
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.653201408925 , model:15, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:2.51063699483 ,downsample:0.874195116283 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.95813489272-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:3-keep_prob:0.897205518497-batch_size:50-downsample:0.583659186288
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.652507130111 , model:15, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:2.49448965198 ,downsample:0.86006434527 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.95813489272-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:3-keep_prob:0.897205518497-batch_size:50-downsample:0.583659186288
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.652725490153 , model:15, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:2.38504085474 ,downsample:0.857115095875 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:1.32638769648-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:32-n_layers:2-keep_prob:0.732932282822-batch_size:50-downsample:0.694517667059
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.667961892751 , model:17, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:2.25054456936 ,downsample:0.86378297853 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:2.86814589654-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:5-keep_prob:0.801469391508-batch_size:25-downsample:0.719331346325
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.666909914386 , model:8, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:1.59324773714 ,downsample:0.857376475971 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.74376042578-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.819993479712-batch_size:25-downsample:0.782327028395
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.664690806624 , model:9, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:1.95941671237 ,downsample:0.905694493082 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.95813489272-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:3-keep_prob:0.897205518497-batch_size:50-downsample:0.583659186288
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.653091915832 , model:15, trainMode:static, batch_size:50 ,seq_len:32 ,grad_clip:2.55155432241 ,downsample:0.801902734042 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:6.13619058959-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:3-keep_prob:0.877049685508-batch_size:25-downsample:0.884550903377
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.661368206229 , model:19, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:3.07546467416 ,downsample:0.853283936544 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.33557727242-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.464332365322-batch_size:25-downsample:0.941907479812
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.660941923926 , model:18, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:2.17835290428 ,downsample:0.846655386932 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.95813489272-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:3-keep_prob:0.897205518497-batch_size:50-downsample:0.583659186288
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.653731691921 , model:15, trainMode:static, batch_size:50 ,seq_len:32 ,grad_clip:1.39260404315 ,downsample:0.819188314317 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:4.95813489272-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:32-n_layers:3-keep_prob:0.897205518497-batch_size:50-downsample:0.583659186288
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.653408525914 , model:15, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:1.97052231748 ,downsample:0.918898718362 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:2.01736824207-cell_type:NormLSTM-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.702969880055-batch_size:25-downsample:0.898455532427
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.661175269084 , model:2, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:2.58647547512 ,downsample:0.872983119076 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:2.99125114123-cell_type:NormLSTM-optimizer:Adam-actFun:relu-seq_len:64-n_layers:2-keep_prob:0.628044403851-batch_size:25-downsample:0.921508935737
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.65342387636 , model:0, trainMode:static, batch_size:50 ,seq_len:32 ,grad_clip:3.13742526145 ,downsample:0.83063142356 ,optimizer:Adam  
+
+INFO:tensorflow:Restoring parameters from /home/will/Desktop/Neural Network/Sales Forecasting/val/grad_clip:7.89519173494-cell_type:highway-optimizer:Adam-actFun:tanh-seq_len:64-n_layers:2-keep_prob:0.745017883177-batch_size:25-downsample:0.902410343017
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+INFO:tensorflow:Restoring parameters from RNN_SS_temp
+loss:0.668743340827 , model:13, trainMode:static, batch_size:100 ,seq_len:16 ,grad_clip:1.71205604554 ,downsample:0.896591728396 ,optimizer:Adam                                  
