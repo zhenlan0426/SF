@@ -1123,7 +1123,7 @@ def hyperSearch2(paras):
                                 paras[1],paras[2],startDate=startDate,downSample=downsample):
             _,init_state = sess.run([train_op,state],\
                                  dict(zip(inputs,X_nps+[learningRate2,init_state])))
-           
+    
     saver.save(sess,'RNN_SS_temp')
         
     # Testing        
@@ -1162,7 +1162,88 @@ def hyperSearch2(paras):
         loss = loss + sess.run(cost,dict(zip(inputs,X_nps+[learningRate2,init_tot_list[i]])))*X_nps[0].shape[0]*16
         w_ = w_ + np.sum(X_nps[1])
     loss = np.sqrt(loss/w_)
-    print "loss:{} , model:{}, trainMode:{}, batch_size:{} ,seq_len:{} ,grad_clip:{} ,downsample:{} ,optimizer:{}  \n"\
-          .format(loss,paras[0],trainModeParas['trainMode'],model_para['batch_size'],\
-                  model_para['seq_len'],model_para['grad_clip'],downsample,model_para['optimizer'])
-    return 100 if (np.isnan(loss) or np.isinf(loss)) else loss      
+    if trainModeParas['trainMode'] == 'dynamic':
+        print "loss:{} , model:{}, trainMode:{}, batch_size:{} ,seq_len:{} ,grad_clip:{} ,downsample:{} ,optimizer:{}  \n"\
+              .format(loss,paras[0],model_para['StopGrad'],model_para['batch_size'],\
+                      model_para['seq_len'],model_para['grad_clip'],downsample,model_para['optimizer'])
+    else:
+        print "loss:{} , model:{}, trainMode:{}, batch_size:{} ,seq_len:{} ,grad_clip:{} ,downsample:{} ,optimizer:{}  \n"\
+              .format(loss,paras[0],trainModeParas['trainMode'],model_para['batch_size'],\
+                      model_para['seq_len'],model_para['grad_clip'],downsample,model_para['optimizer'])
+    return 100 if (np.isnan(loss) or np.isinf(loss)) else loss        
+
+
+
+def RNN_Train_Forecast_SS(paras):   
+    # paras[0] is one of the modelName
+    model_para = model_para_list[paras[0]]['model_para'].copy()
+    model_name = 'grad_clip:{}-cell_type:{}-optimizer:{}-actFun:{}-seq_len:{}-n_layers:{}-keep_prob:{}-batch_size:{}-downsample:{}'\
+                 .format(model_para['grad_clip'],model_para['cell_type'],model_para['optimizer'],model_para['actFun'],model_para['seq_len'],\
+                         model_para['n_layers'],model_para['keep_prob'],model_para['batch_size'],model_para_list[paras[0]]['downsample']) 
+    model_para['batch_size'] = paras[1]
+    model_para['seq_len'] = paras[2]
+    model_para['grad_clip'] = paras[3]
+    model_para['optimizer'] = paras[4] 
+    model_para.update(fixedPara)
+    downsample = paras[5]
+    startDate = 0 # set to zero as there is only 64 days
+    inputs,train_op,cost,saver,yhat,state = createGraphRNN2(**model_para)
+        
+    sess = tf.InteractiveSession()
+    sess.run(tf.global_variables_initializer())
+    saver.restore(sess,SavePath+model_name)
+    
+    # Training
+    init_state = tuple([tf.contrib.rnn.LSTMStateTuple(np.zeros((model_para['batch_size'],model_para['d']),dtype=np.float32),\
+                                                      np.zeros((model_para['batch_size'],model_para['d']),dtype=np.float32))\
+                                                    for i in range(model_para['n_layers'])]) \
+                 if model_para['cell_type'] == 'NormLSTM' else \
+                 tuple([np.zeros((model_para['batch_size'],model_para['d']),dtype=np.float32) \
+                        for i in range(model_para['n_layers'])]) 
+
+    for i in range(epoch):
+        for X_nps in RNN_generator_static(y_np, weight_np,Con_np,Dis_np,X_np,\
+                                paras[1],paras[2],startDate=startDate,downSample=downsample):
+            _,init_state = sess.run([train_op,state],\
+                                 dict(zip(inputs,X_nps+[learningRate2,init_state])))
+            
+    model_name_new = "Model:{}-batch_size:{}-seq_len:{}-grad_clip:{}-optimizer:{}-downsample:{}"\
+                      .format(paras[0],model_para['batch_size'],\
+                      model_para['seq_len'],model_para['grad_clip'],model_para['optimizer'],downsample)
+    saver.save(sess,SavePath_SS+model_name_new)
+    
+    # Testing        
+    model_para2 = model_para.copy()
+    model_para2['batch_size'] = None
+    model_para2['seq_len'] = 16
+
+    inputs,train_op,cost,saver,yhat,state = createGraphRNN2(**model_para2)   
+    sess = tf.InteractiveSession()
+    sess.run(tf.global_variables_initializer())
+    saver.restore(sess,SavePath_SS+model_name_new)
+    
+    ## get init_state
+    init_tot_list = []
+    for X_nps in RNN_generator_static(y_np, weight_np,Con_np,Dis_np,X_np,\
+                                      100,16,startDate=startDate,downSample=1,iterAll=True,permutate=False):
+        if X_nps[-1]:
+            init_tot_list.append(init_state)
+        init_state = sess.run(state,dict(zip(inputs,X_nps+[learningRate2,init_state])))
+    init_tot_list.append(init_state)
+    init_tot_list = init_tot_list[1:]
+      
+    # prediction    
+    model_para2['StopGrad'] = False # does not matter for prediction
+    inputs,train_op,cost,saver,yhat,state = createGraphRNN_dynamic(**model_para2)
+    sess = tf.InteractiveSession()
+    sess.run(tf.global_variables_initializer())
+    saver.restore(sess,SavePath_SS+model_name_new)
+
+    Yhat = []      
+    for i,X_nps in enumerate(RNN_generator_dynamic(y_np_val, np.ones(y_np_val.shape[0]),Con_np_val,Dis_np_val,X_np_val,\
+                                                 100,16,startDate=0,downSample=1,iterAll=True,permutate=False)): 
+        X_nps[-2] = False
+        Yhat.append(np.mean(np.stack([sess.run(yhat,dict(zip(inputs,X_nps+[learningRate2,init_tot_list[i]])))\
+                                       for _ in range(repeat)],2),2))
+    return np.concatenate(Yhat)        
+   
