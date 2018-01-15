@@ -28,6 +28,20 @@ def reMapDF(df,cols):
         df = df.replace({col:dict_})
     return df
 
+def labelPermutation(df,cols,timesList):
+    # remap cols in dataframe to random permutation
+    
+    def _labelPermutation(label,times):
+        # label be the unique label
+        d = label.shape[0]
+        return np.stack([label] + [np.random.permutation(d) for _ in range(times)],1)
+
+    for col,time in zip(cols,timesList):
+        uniq = pd.unique(df[col])
+        tempTable = pd.DataFrame(_labelPermutation(uniq,time),columns=[col]+[col+'_p'+str(i) for i in range(time)])
+        df = df.merge(tempTable,'left',col).drop(col,1)
+    return df
+
 def dimentionDF(df,cols):
     return {col:len(set(df[col])) for col in cols}
 
@@ -1247,3 +1261,101 @@ def RNN_Train_Forecast_SS(paras):
                                        for _ in range(repeat)],2),2))
     return np.concatenate(Yhat)        
    
+    
+def CreatDataGBM():
+    with open(r"dateVar.pickle", "rb") as input_file:
+        dateVar_list = cPickle.load(input_file)
+    types = {'id': 'int32',
+     'item_nbr': 'int32',
+     'store_nbr': 'int8',
+     'unit_sales': 'float32',
+     'onpromotion': bool}
+    train = pd.read_csv('train.csv',usecols=['date','item_nbr','store_nbr','unit_sales','onpromotion'],\
+                        parse_dates=['date'],dtype=types, infer_datetime_format=True)
+    train = train.fillna(2,axis=1)
+    train.onpromotion = train.onpromotion.astype(np.int8)
+    train.loc[train.unit_sales<0,'unit_sales'] = .0 # clip negative sales to zero
+    test = pd.read_csv('test.csv',parse_dates=['date'],dtype=types, infer_datetime_format=True)
+    test = test.fillna(2,axis=1)
+    test.onpromotion = test.onpromotion.astype(np.int8)
+    test.columns = [u'unit_sales', u'date', u'store_nbr', u'item_nbr', u'onpromotion']
+    train = train.loc[train.store_nbr != 52] # new store
+    test = test.loc[test.store_nbr != 52] # new store
+    train = train.loc[train.date >'2016-07-14']
+    
+    # S, I, T dependent variables i.e. Sales and promotions
+    train = train.set_index(["store_nbr", "item_nbr", "date"])\
+                [["unit_sales","onpromotion"]].unstack(level=-1)
+    test = test.set_index(["store_nbr", "item_nbr", "date"])\
+                [["unit_sales","onpromotion"]].unstack(level=-1)                
+    t0 = train.shape[1]/2 - 1
+    test2 = test.merge(train,'inner',left_index=True,right_index=True)
+    sales = test2.loc[:,'unit_sales'].fillna(0)
+    sales = np.concatenate([sales.iloc[:,16:].values,sales.iloc[:,:16].values],1)
+    n = sales.shape[0]
+    promo = test2.loc[:,'onpromotion'].fillna(0.5)
+    promo = np.concatenate([promo.iloc[:,16:].values,promo.iloc[:,:16].values],1)
+    
+    # non time dependent variables, i.e. store and item related
+    items = pd.read_csv('items.csv')
+    stores = pd.read_csv('stores.csv')
+    stores2 = labelPermutation(stores.drop('state',1),['city','type','cluster'],[10,4,8])
+    items2 = labelPermutation(items,['family','class'],[5,20])
+    X = np.concatenate([pd.merge(pd.DataFrame(test2.reset_index()[['store_nbr']].values,columns=['store_nbr'])\
+                             ,stores2,'left','store_nbr').drop('store_nbr',1).values,\
+                    pd.merge(pd.DataFrame(test2.reset_index()[['item_nbr']].values,columns=['item_nbr'])\
+                             ,items2,'left','item_nbr').drop('item_nbr',1).values],1).astype(np.float32)
+    Weight = np.ones(n,dtype=np.float32)
+    Weight[X[:,22]==1] = 1.25
+    
+    # time dependent variables
+    maxDate = test2.columns.get_level_values(1).max()
+    minDate = test2.columns.get_level_values(1).min()
+    # 2016-12-25 is not in training dataset
+    dateVar_list = [labelPermutation(dateVar.loc[(dateVar.date>=minDate) & \
+                                                 (dateVar.date<=maxDate) & (dateVar.date!='2016-12-25')]\
+                           .drop(['date','locale_name'],1),
+                            ['type','locale'],[4,2]).values.T\
+                    for dateVar in dateVar_list]
+    
+    def _creatX(t0):
+        # t0+1 is the first prediction date
+        return np.concatenate([np.stack(
+                        [sales[:,t0-7:t0].mean(1), sales[:,t0-14:t0].mean(1), sales[:,t0-30:t0].mean(1),sales[:,t0-60:t0].mean(1),\
+                         sales[:,t0-90:t0].mean(1),sales[:,t0-120:t0].mean(1),\
+                         sales[:,t0-30:t0].mean(1)-sales[:,t0-60:t0-30].mean(1),sales[:,t0-7:t0].mean(1)-sales[:,t0-14:t0-7].mean(1),\
+                         sales[:,t0]],1),\
+                        np.stack(
+                        [promo[:,t0-7:t0].mean(1), promo[:,t0-14:t0].mean(1), promo[:,t0-30:t0].mean(1),\
+                         promo[:,t0-60:t0].mean(1), promo[:,t0-90:t0].mean(1),\
+                         promo[:,t0-30:t0].mean(1)-promo[:,t0-60:t0-30].mean(1),promo[:,t0-7:t0].mean(1)-promo[:,t0-14:t0-7].mean(1),\
+                         ],1),\
+                        promo[:,t0:t0+17],\
+                        X,\
+                        np.broadcast_to(dateVar_list[np.random.randint(0,10)][:,t0:t0+17].flatten(),(n,204))],1) 
+    
+    def CreateGBMTrain(timePoints=range(0,255,16),startT=t0-32):
+        X_, Y_ = [],[]
+        for t in timePoints:
+            X_.append(_creatX(startT-t))
+            Y_.append(sales[:,startT-t+1:startT-t+17])
+        return np.concatenate(X_,0),np.concatenate(Y_,0)    
+    
+    def CreateGBMTest(startT):
+        return _creatX(startT), sales[:,startT+1:startT+17]
+    
+
+    X_val,Y_val = CreateGBMTest(t0-16) 
+    X_train,Y_train = CreateGBMTrain()
+    X_test,Y_test = CreateGBMTest(t0)
+    return X_train,np.log(Y_train+1),X_val,np.log(Y_val+1),X_test,Y_test,Weight
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
