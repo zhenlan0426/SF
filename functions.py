@@ -1262,7 +1262,7 @@ def RNN_Train_Forecast_SS(paras):
     return np.concatenate(Yhat)        
    
     
-def CreatDataGBM():
+def CreatDataGBM(IsTrain=True):
     with open(r"dateVar.pickle", "rb") as input_file:
         dateVar_list = cPickle.load(input_file)
     types = {'id': 'int32',
@@ -1344,14 +1344,14 @@ def CreatDataGBM():
     def CreateGBMTest(startT):
         return _creatX(startT), sales[:,startT+1:startT+17]
     
-
-    X_val,Y_val = CreateGBMTest(t0-16) 
-    X_train,Y_train = CreateGBMTrain()
-    X_test,Y_test = CreateGBMTest(t0)
-    return X_train,np.log(Y_train+1),X_val,np.log(Y_val+1),X_test,Y_test,Weight
-
-    
-    
+    if IsTrain:
+        X_val,Y_val = CreateGBMTest(t0-16) 
+        X_train,Y_train = CreateGBMTrain()
+        return X_train,np.log(Y_train+1),X_val,np.log(Y_val+1),Weight
+    else:
+        X_test,Y_test = CreateGBMTest(t0)
+        X_train,Y_train = CreateGBMTrain(startT=t0-16)
+        return X_train,np.log(Y_train+1),X_test,Y_test,Weight
     
     
     
